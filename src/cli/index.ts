@@ -5,7 +5,7 @@ import chalk from "chalk";
 import { HackflowAgent } from "../core/agent.js";
 import { createStorage } from "../storage/index.js";
 import { SecurityGuard } from "../security/index.js";
-import { MCPClient } from "../mcps/client.js";
+import { createMCPClient } from "../mcps/index.js";
 import { CLIPromptHandler } from "../core/prompt.js";
 import { createAIProvider, loadAIConfig } from "../ai/index.js";
 import type { WorkflowConfig } from "../types/index.js";
@@ -24,10 +24,13 @@ program
   .option("-c, --config <file>", "Config file with workflow values")
   .option("-d, --dry-run", "Simulate execution without making changes")
   .option("-v, --verbose", "Verbose output")
+  .option("--mock-mcp", "Use mock MCP servers (for development/testing)")
   .option("--var <key=value>", "Set workflow variables", collect, [])
   .action(async (workflowPath: string, options: any) => {
     try {
-      const agent = await createAgent();
+      // Use real MCP by default, mock only if --mock-mcp flag is set
+      const mcpType = options.mockMcp ? "mock" : "real";
+      const agent = await createAgent(mcpType);
 
       // Parse variables
       const variables: Record<string, any> = {};
@@ -220,7 +223,7 @@ program.parse();
 
 // Helper functions
 
-async function createAgent(): Promise<HackflowAgent> {
+async function createAgent(mcpType: "mock" | "real" = "real"): Promise<HackflowAgent> {
   const storage = createStorage({ type: "sqlite" });
 
   // Try to load AI provider (optional)
@@ -237,7 +240,7 @@ async function createAgent(): Promise<HackflowAgent> {
 
   const promptHandler = new CLIPromptHandler(aiProvider);
   const security = new SecurityGuard({}, promptHandler);
-  const mcpClient = new MCPClient();
+  const mcpClient = createMCPClient({ type: mcpType });
 
   const agent = new HackflowAgent(
     storage,

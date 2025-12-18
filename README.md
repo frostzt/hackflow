@@ -53,10 +53,17 @@ hackflow run examples/create-pr-workflow.yaml --var pr_title="Add new feature"
 # Dry run mode (simulate without executing)
 hackflow run examples/git-commit-workflow.yaml --dry-run
 
+# Use mock MCP servers (for development)
+hackflow run examples/git-commit-workflow.yaml --mock-mcp
+
 # AI-powered workflows (requires ANTHROPIC_API_KEY)
 export ANTHROPIC_API_KEY=your_key
 hackflow run examples/ai-commit-message.yaml
 ```
+
+**Note**: Hackflow uses real MCP servers by default. If no configuration is found, it gracefully falls back to mock servers. 
+
+**To use real Git/GitHub/GitLab**: See [docs/OFFICIAL_MCP_SERVERS.md](docs/OFFICIAL_MCP_SERVERS.md) for setup instructions.
 
 ### 🤖 AI Features (Optional)
 

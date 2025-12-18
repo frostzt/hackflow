@@ -1,0 +1,78 @@
+name: git-add-commit-push
+description: Simple workflow to add, commit, and push changes
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - git
+
+config_schema:
+  repo_path:
+    type: string
+    description: Path to git repository
+    required: false
+    default: "."
+
+steps:
+  # Step 1: Show current status
+  - action: git.git_status
+    description: Check current git status
+    params:
+      repo_path: "{{repo_path}}"
+    output: status
+
+  - action: log.info
+    params:
+      message: |
+        Current status:
+        {{status}}
+
+  # Step 2: Ask for commit message
+  - action: prompt.ask
+    description: Ask user for commit message
+    params:
+      message: "Enter commit message"
+    output: commit_message
+
+  # Step 4: Add all changes
+  - action: git.git_add
+    description: Stage all changes
+    params:
+      repo_path: "{{repo_path}}"
+      files: ["."]
+    output: add_result
+
+  - action: log.info
+    params:
+      message: "✓ Staged all changes"
+
+  # Step 5: Commit
+  - action: git.git_commit
+    description: Commit changes
+    params:
+      repo_path: "{{repo_path}}"
+      message: "{{commit_message}}"
+    output: commit_result
+
+  - action: log.info
+    params:
+      message: "✓ Committed: {{commit_result}}"
+
+  # Step 6: Push
+  - action: git.git_push
+    description: Push to remote
+    params:
+      repo_path: "{{repo_path}}"
+    output: push_result
+
+  - action: log.info
+    params:
+      message: "✓ Pushed to remote: {{push_result}}"
+
+  # Step 7: Success message
+  - action: log.info
+    params:
+      message: |
+        
+        🎉 Success!
+        Added, committed, and pushed changes.

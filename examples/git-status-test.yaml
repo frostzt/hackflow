@@ -1,0 +1,49 @@
+name: git-status-test
+description: Test git MCP server connection and status check
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - git
+
+config_schema:
+  repo_path:
+    type: string
+    description: Path to git repository
+    required: false
+    default: "."
+
+steps:
+  # Step 1: Get git status
+  - action: git.git_status
+    description: Check current git status
+    params:
+      repo_path: "{{repo_path}}"
+    output: status
+
+  - action: log.info
+    params:
+      message: |
+        ✓ Git MCP Server Working!
+        
+        Status: {{status}}
+
+  # Step 2: Get diff of unstaged changes
+  - action: git.git_diff_unstaged
+    description: Show unstaged changes
+    params:
+      repo_path: "{{repo_path}}"
+    output: diff
+
+  - action: log.info
+    params:
+      message: |
+        
+        Unstaged changes:
+        {{diff}}
+
+  - action: log.info
+    params:
+      message: |
+        
+        🎉 Success! Real Git MCP server is working perfectly!

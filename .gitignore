@@ -43,3 +43,7 @@ coverage/
 tmp/
 temp/
 
+# Tracking files
+PROJECT_SUMMARY.md
+TODO
+
