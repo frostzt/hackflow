@@ -35,6 +35,24 @@ export class TemplateEngine {
     context: Record<string, any>
   ): any {
     if (typeof obj === "string") {
+      // Check if this is a pure variable reference (e.g., "{{draft}}")
+      // If so, return the actual value to preserve its type (boolean, number, etc.)
+      const pureVarMatch = obj.match(/^\{\{([^}]+)\}\}$/);
+      if (pureVarMatch) {
+        const trimmedKey = pureVarMatch[1].trim();
+        const value = this.getNestedValue(context, trimmedKey);
+        
+        if (value === undefined || value === null) {
+          throw new Error(
+            `Template variable not found: ${trimmedKey}. Available: ${Object.keys(context).join(", ")}`
+          );
+        }
+        
+        // Return the actual value (preserves boolean, number, object, etc.)
+        return value;
+      }
+      
+      // Otherwise, interpolate as string (for mixed content like "Hello {{name}}")
       return this.interpolate(obj, context);
     }
 
