@@ -1,0 +1,62 @@
+name: gitlab-create-issue
+description: Create a GitLab issue with interactive prompts
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - gitlab
+
+steps:
+  # Step 1: Ask for project ID
+  - action: prompt.ask
+    description: Get GitLab project ID
+    params:
+      message: "GitLab project ID (numeric ID, e.g., 12345)"
+    output: project_id
+
+  # Step 2: Ask for issue title
+  - action: prompt.ask
+    description: Get issue title
+    params:
+      message: "Issue title"
+    output: title
+
+  # Step 3: Ask for issue description
+  - action: prompt.ask
+    description: Get issue description
+    params:
+      message: "Issue description (optional, press Enter to skip)"
+    output: description
+
+  # Step 4: Ask for labels
+  - action: prompt.ask
+    description: Get labels
+    params:
+      message: "Labels (comma-separated, optional, press Enter to skip)"
+    output: labels_input
+
+  # Step 5: Create the issue
+  - action: gitlab.create_issue
+    description: Create a new GitLab issue
+    params:
+      projectId: "{{project_id}}"
+      title: "{{title}}"
+      description: "{{description}}"
+      labels: "{{labels_input}}"
+    output: issue_result
+
+  # Step 6: Display success
+  - action: log.info
+    params:
+      message: |
+        
+        ✓ Issue created successfully!
+        
+        📋 Title: {{title}}
+        📁 Project ID: {{project_id}}
+        🔗 Issue URL: {{issue_result.web_url}}
+        
+        Issue Details:
+        - Issue ID: {{issue_result.iid}}
+        - State: {{issue_result.state}}
+        - Author: {{issue_result.author.name}}
