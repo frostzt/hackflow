@@ -1,0 +1,107 @@
+name: github-create-pr-workflow
+description: Create a GitHub pull request with full details and return the PR link
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - github
+
+steps:
+  # Step 1: Ask for repository owner
+  - action: prompt.ask
+    description: Get repository owner
+    params:
+      message: "Repository owner (username or organization)"
+    output: owner
+
+  # Step 2: Ask for repository name
+  - action: prompt.ask
+    description: Get repository name
+    params:
+      message: "Repository name"
+    output: repo
+
+  # Step 3: Ask for source branch
+  - action: prompt.ask
+    description: Get source branch name
+    params:
+      message: "Source branch (the branch with your changes)"
+    output: head
+
+  # Step 4: Ask for target branch
+  - action: prompt.ask
+    description: Get target branch name
+    params:
+      message: "Target branch to merge into (default: main)"
+    output: base_input
+
+  # Step 5: Set default base branch if not provided
+  - action: variable.set
+    params:
+      name: base
+      value: "main"
+    if: "{{base_input}} == ''"
+
+  - action: variable.set
+    params:
+      name: base
+      value: "{{base_input}}"
+    if: "{{base_input}} != ''"
+
+  # Step 6: Ask for PR title
+  - action: prompt.ask
+    description: Get PR title
+    params:
+      message: "Pull request title"
+    output: title
+
+  # Step 7: Ask for PR description
+  - action: prompt.ask
+    description: Get PR description
+    params:
+      message: "Pull request description (optional, press Enter to skip)"
+    output: body
+
+  # Step 8: Ask if it should be a draft
+  - action: prompt.confirm
+    description: Ask if PR should be draft
+    params:
+      message: "Create as draft PR?"
+      default: false
+    output: draft
+  # Step 9: Create the pull request
+  - action: github.create_pull_request
+    description: Create a new GitHub pull request
+    params:
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      head: "{{head}}"
+      base: "{{base}}"
+      title: "{{title}}"
+      body: "{{body}}"
+      draft: "{{draft}}"
+    output: pr_result
+
+  # Step 10: Extract PR number from the result
+  # GitHub API returns an object with 'number' and 'html_url' fields
+  - action: log.info
+    params:
+      message: |
+        ✓ Pull request created successfully!
+        
+        PR Details:
+        {{pr_result}}
+
+  # Step 11: Display the PR link
+  - action: log.info
+    params:
+      message: |
+        
+        🎉 Your pull request is ready!
+        
+        📋 Title: {{title}}
+        🔀 Merging: {{head}} → {{base}}
+        📁 Repository: {{owner}}/{{repo}}
+        
+        🔗 View your PR at:
+        https://github.com/{{owner}}/{{repo}}/pull/{{pr_result.number}}
