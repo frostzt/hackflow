@@ -1,0 +1,45 @@
+{
+  "name": "hackflow",
+  "version": "0.1.0",
+  "description": "A hackable AI agent with workflow-based plugins",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "hackflow": "./dist/cli/index.js"
+  },
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/index.ts",
+    "format": "prettier --write 'src/**/*.ts'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "workflow",
+    "automation",
+    "mcp",
+    "hackable"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "better-sqlite3": "^12.5.0",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.2",
+    "js-yaml": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.0.3",
+    "prettier": "^3.7.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
