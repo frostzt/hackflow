@@ -1,0 +1,75 @@
+# Simple AI Demo
+# Demonstrates AI features without requiring actual MCP tools
+
+name: ai-simple-demo
+description: Simple AI demonstration workflow
+version: 1.0.0
+author: Hackflow Team
+
+prompt_mode: both
+
+steps:
+  # Step 1: Show info
+  - action: log.info
+    params:
+      message: "🤖 AI Features Demo"
+
+  # Step 2: Ask for user input (dynamic mode - AI interprets)
+  - action: prompt.ask
+    description: Get user input with AI interpretation
+    params:
+      message: "Tell me what you're working on today (natural language)"
+      dynamic: true
+    output: user_input
+
+  # Step 3: Show what user said
+  - action: log.info
+    params:
+      message: "You said: {{user_input}}"
+
+  # Step 4: Use AI to generate a response
+  - action: ai.generate
+    description: Generate a helpful response
+    params:
+      prompt: |
+        The user said they are working on: "{{user_input}}"
+
+        Provide a brief, encouraging response (2-3 sentences).
+        Be supportive and helpful.
+      temperature: 0.8
+      max_tokens: 150
+    output: ai_response
+
+  # Step 5: Show AI response
+  - action: log.info
+    params:
+      message: |
+
+        🤖 AI says:
+        {{ai_response}}
+
+  # Step 6: Ask if they want a summary
+  - action: prompt.confirm
+    params:
+      message: "Would you like me to summarize what we discussed?"
+    output: want_summary
+
+  # Step 7: Generate summary if requested
+  - action: ai.summarize
+    if: "{{want_summary}} == true"
+    params:
+      text: "User is working on: {{user_input}}. AI responded: {{ai_response}}"
+      max_length: 100
+    output: summary
+
+  - action: log.info
+    if: "{{want_summary}} == true"
+    params:
+      message: |
+
+        📝 Summary:
+        {{summary}}
+
+  - action: log.info
+    params:
+      message: "✨ Demo complete!"

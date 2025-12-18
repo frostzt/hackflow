@@ -1,0 +1,83 @@
+# Create Pull Request Workflow
+# Creates a GitHub PR with smart title and description
+
+name: create-pr-workflow
+description: Create a GitHub pull request
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - git
+  - github
+
+config_schema:
+  base_branch:
+    type: string
+    description: Base branch for PR
+    default: main
+  pr_title:
+    type: string
+    description: PR title (optional, will prompt if not provided)
+    required: false
+
+prompt_mode: both
+
+steps:
+  # Step 1: Get current branch
+  - action: git.current_branch
+    description: Get current branch
+    output: branch_info
+
+  # Step 2: Check we're not on main
+  - action: log.error
+    description: Can't create PR from main branch
+    if: "{{branch_info.branch}} == 'main'"
+    params:
+      message: "Error: Cannot create PR from main branch"
+
+  # Step 3: Prompt for PR title if not provided
+  - action: prompt.ask
+    description: Get PR title
+    if: "{{pr_title}} == ''"
+    params:
+      message: "Enter PR title"
+      dynamic: true
+    output: pr_title_input
+
+  # Step 4: Set PR title variable
+  - action: variable.set
+    description: Set PR title
+    params:
+      name: final_pr_title
+      value: "{{pr_title_input}}"
+    if: "{{pr_title}} == ''"
+
+  - action: variable.set
+    description: Use provided PR title
+    params:
+      name: final_pr_title
+      value: "{{pr_title}}"
+    if: "{{pr_title}} != ''"
+
+  # Step 5: Prompt for PR description
+  - action: prompt.ask
+    description: Get PR description
+    params:
+      message: "Enter PR description (or press enter to skip)"
+      dynamic: true
+    output: pr_description
+
+  # Step 6: Create the PR
+  - action: github.create_pr
+    description: Create pull request
+    params:
+      title: "{{final_pr_title}}"
+      body: "{{pr_description}}"
+      base: "{{base_branch}}"
+    output: pr_result
+
+  # Step 7: Log success with PR URL
+  - action: log.info
+    description: Print PR URL
+    params:
+      message: "✓ Pull request created: {{pr_result.url}}"

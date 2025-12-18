@@ -1,0 +1,26 @@
+# Simple Hello World workflow
+# Demonstrates basic workflow structure and variable usage
+
+name: hello-world
+description: A simple hello world workflow
+version: 1.0.0
+author: Hackflow Team
+
+config_schema:
+  name:
+    type: string
+    description: Your name
+    required: true
+    default: World
+
+steps:
+  - action: log.info
+    description: Print greeting message
+    params:
+      message: "Hello, {{name}}!"
+    output: greeting
+
+  - action: log.info
+    description: Print success message
+    params:
+      message: "Workflow completed successfully!"

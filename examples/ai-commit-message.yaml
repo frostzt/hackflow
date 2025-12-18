@@ -1,0 +1,77 @@
+# AI-Powered Commit Message Generator
+# Uses AI to generate commit messages from natural language descriptions
+
+name: ai-commit-message
+description: Generate commit messages using AI
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - git
+
+prompt_mode: dynamic
+
+steps:
+  # Step 1: Get git status
+  - action: git.status
+    description: Check what changed
+    output: git_status
+
+  # Step 2: Ask user to describe changes (dynamic mode uses AI to interpret)
+  - action: prompt.ask
+    description: Get change description from user
+    params:
+      message: "Describe what you changed in your own words"
+      dynamic: true
+    output: user_description
+
+  # Step 3: Generate proper commit message using AI
+  - action: ai.generate
+    description: Generate commit message
+    params:
+      prompt: |
+        Generate a concise, professional git commit message based on this description:
+
+        User said: "{{user_description}}"
+
+        Follow conventional commit format (feat:, fix:, docs:, etc).
+        Keep it under 72 characters.
+        Be specific but concise.
+
+        Return ONLY the commit message, nothing else.
+      temperature: 0.7
+      max_tokens: 100
+    output: commit_message
+
+  # Step 4: Show the generated message
+  - action: log.info
+    params:
+      message: "Generated commit message: {{commit_message}}"
+
+  # Step 5: Confirm with user
+  - action: prompt.confirm
+    params:
+      message: "Use this commit message?"
+    output: confirmed
+
+  # Step 6: Stage and commit if confirmed
+  - action: git.stage_all
+    if: "{{confirmed}} == true"
+    description: Stage all changes
+
+  - action: git.commit
+    if: "{{confirmed}} == true"
+    description: Commit with AI-generated message
+    params:
+      message: "{{commit_message}}"
+    output: commit_result
+
+  - action: log.info
+    if: "{{confirmed}} == true"
+    params:
+      message: "✓ Committed successfully!"
+
+  - action: log.info
+    if: "{{confirmed}} == false"
+    params:
+      message: "Commit cancelled"

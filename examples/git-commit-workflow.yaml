@@ -1,0 +1,63 @@
+# Git Commit Workflow
+# Stages changes, prompts for commit message, commits, and optionally pushes
+
+name: git-commit-workflow
+description: Stage, commit, and optionally push changes
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - git
+
+config_schema:
+  auto_push:
+    type: boolean
+    description: Automatically push after commit
+    default: false
+  remote:
+    type: string
+    description: Git remote name
+    default: origin
+
+prompt_mode: both
+
+steps:
+  # Step 1: Stage all changes
+  - action: git.stage_all
+    description: Stage all changes
+    output: stage_result
+
+  # Step 2: Ask for commit message
+  - action: prompt.ask
+    description: Get commit message from user
+    params:
+      message: "Enter commit message"
+      dynamic: true
+    output: commit_message
+
+  # Step 3: Commit with message
+  - action: git.commit
+    description: Commit staged changes
+    params:
+      message: "{{commit_message}}"
+    output: commit_result
+
+  # Step 4: Get current branch
+  - action: git.current_branch
+    description: Get current branch name
+    output: current_branch_info
+
+  # Step 5: Push (conditional on auto_push)
+  - action: git.push
+    description: Push to remote
+    if: "{{auto_push}} == true"
+    params:
+      remote: "{{remote}}"
+      branch: "{{current_branch_info.branch}}"
+    output: push_result
+
+  # Step 6: Log success
+  - action: log.info
+    description: Print success message
+    params:
+      message: "✓ Changes committed successfully!"

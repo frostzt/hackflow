@@ -1,0 +1,65 @@
+# AI Code Reviewer
+# Reviews code changes and provides feedback
+
+name: ai-code-reviewer
+description: AI-powered code review
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - git
+  - filesystem
+
+steps:
+  # Step 1: Get git diff
+  - action: git.status
+    description: Get current changes
+    output: status
+
+  # Step 2: Read a file to review (example)
+  - action: prompt.ask
+    params:
+      message: "Enter the file path to review"
+    output: file_path
+
+  - action: filesystem.read
+    params:
+      path: "{{file_path}}"
+    output: file_content
+    retry:
+      attempts: 2
+      delay: 1000
+
+  # Step 3: AI code review
+  - action: ai.generate
+    description: Generate code review
+    params:
+      prompt: |
+        Review this code and provide constructive feedback:
+
+        ```
+        {{file_content}}
+        ```
+
+        Focus on:
+        1. Potential bugs or errors
+        2. Code quality and readability
+        3. Best practices
+        4. Suggestions for improvement
+
+        Format your response as:
+        - **Issues**: List any problems
+        - **Suggestions**: Improvement ideas
+        - **Positive**: What's done well
+      temperature: 0.5
+      max_tokens: 500
+    output: review
+
+  # Step 4: Display review
+  - action: log.info
+    params:
+      message: |
+
+        === AI Code Review ===
+        {{review}}
+        =====================

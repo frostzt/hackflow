@@ -1,0 +1,21 @@
+name: greeting-workflow
+description: Interactive greeting
+
+steps:
+  - action: prompt.ask
+    params:
+      message: "What's your name?"
+    output: user_name
+
+  - action: prompt.select
+    params:
+      message: "How are you feeling?"
+      options:
+        - Happy
+        - Excited
+        - Peaceful
+    output: feeling
+
+  - action: log.info
+    params:
+      message: "Hello {{user_name}}! Glad you're feeling {{feeling}}!"
