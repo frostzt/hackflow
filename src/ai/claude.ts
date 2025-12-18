@@ -10,7 +10,7 @@ export class ClaudeProvider implements IModelProvider {
 
   constructor(
     apiKey: string,
-    defaultModel: string = "claude-3-5-sonnet-20241022",
+    defaultModel: string = "claude-sonnet-4-20250514",
   ) {
     this.client = new Anthropic({ apiKey });
     this.defaultModel = defaultModel;
