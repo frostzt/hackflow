@@ -1,0 +1,142 @@
+name: github-create-pr-full
+description: Create a comprehensive GitHub pull request with reviewers and all details
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - github
+
+steps:
+  # Ask for repository owner
+  - action: prompt.ask
+    description: Get repository owner
+    params:
+      message: "Repository owner (username or organization)"
+    output: owner
+
+  # Ask for repository name
+  - action: prompt.ask
+    description: Get repository name
+    params:
+      message: "Repository name"
+    output: repo
+
+  # Ask for source branch
+  - action: prompt.ask
+    description: Get source branch name
+    params:
+      message: "Source branch (the branch with your changes)"
+    output: head
+
+  # Ask for target branch
+  - action: prompt.ask
+    description: Get target branch name
+    params:
+      message: "Target branch to merge into (default: main)"
+    output: base_input
+
+  # Set default base branch if not provided
+  - action: variable.set
+    params:
+      name: base
+      value: "main"
+    if: "{{base_input}} == ''"
+
+  - action: variable.set
+    params:
+      name: base
+      value: "{{base_input}}"
+    if: "{{base_input}} != ''"
+
+  # Ask for PR title
+  - action: prompt.ask
+    description: Get PR title
+    params:
+      message: "Pull request title"
+    output: title
+
+  # Ask for PR description
+  - action: prompt.ask
+    description: Get PR description
+    params:
+      message: "Pull request description (optional, press Enter to skip)"
+    output: body
+
+  # Ask if it should be a draft
+  - action: prompt.confirm
+    description: Ask if PR should be draft
+    params:
+      message: "Create as draft PR?"
+      default: false
+    output: draft
+  # Step 1: Get the head commit to include in PR details
+  - action: github.get_commit
+    description: Get details of the head commit
+    params:
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      sha: "{{head}}"
+      include_diff: false
+    output: head_commit
+    on_error: continue
+
+  # Step 2: Create the pull request
+  - action: github.create_pull_request
+    description: Create a new GitHub pull request
+    params:
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      head: "{{head}}"
+      base: "{{base}}"
+      title: "{{title}}"
+      body: "{{body}}"
+      draft: "{{draft}}"
+      maintainer_can_modify: true
+    output: pr_result
+
+  # Step 3: Get the full PR details
+  - action: github.pull_request_read
+    description: Get full PR details including status
+    params:
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      pullNumber: "{{pr_result.id}}"
+      method: "get"
+    output: pr_details
+
+  # Step 4: Display comprehensive results
+  - action: log.info
+    params:
+      message: |
+        
+        ═══════════════════════════════════════════════════════════
+        🎉 PULL REQUEST CREATED SUCCESSFULLY!
+        ═══════════════════════════════════════════════════════════
+        
+        📋 DETAILS:
+           Title:      {{title}}
+           PR URL:     {{pr_result.url}}
+           Draft:      {{draft}}
+        
+        🔀 BRANCHES:
+           From:       {{head}}
+           Into:       {{base}}
+           Repository: {{owner}}/{{repo}}
+        
+        📝 DESCRIPTION:
+        {{body}}
+        
+        🔗 LINKS:
+           View PR:    {{pr_result.url}}
+           Files:      {{pr_result.url}}/files
+           Checks:     {{pr_result.url}}/checks
+        
+        ═══════════════════════════════════════════════════════════
+        
+        💡 Next Steps:
+           - Review your changes at the PR link above
+           - Request reviews from team members
+           - Wait for CI/CD checks to complete
+           - Merge when ready!
+        
+        ═══════════════════════════════════════════════════════════

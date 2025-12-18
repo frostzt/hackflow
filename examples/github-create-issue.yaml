@@ -1,0 +1,54 @@
+name: github-create-issue
+description: Create a GitHub issue using the official GitHub MCP server
+version: 1.0.0
+author: Hackflow Team
+
+mcps_required:
+  - github
+
+steps:
+  # Step 1: Ask for repository owner
+  - action: prompt.ask
+    description: Get repository owner
+    params:
+      message: "Repository owner (username or organization)"
+    output: owner
+
+  # Step 2: Ask for repository name
+  - action: prompt.ask
+    description: Get repository name
+    params:
+      message: "Repository name"
+    output: repo
+
+  # Step 3: Ask for issue title
+  - action: prompt.ask
+    description: Get issue title
+    params:
+      message: "Issue title"
+    output: title
+
+  # Step 4: Ask for issue body
+  - action: prompt.ask
+    description: Get issue description
+    params:
+      message: "Issue description (optional, press Enter to skip)"
+    output: body
+  # Step 5: Create the issue
+  - action: github.issue_write
+    description: Create a new GitHub issue
+    params:
+      method: "create"
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      title: "{{title}}"
+      body: "{{body}}"
+    output: issue_result
+
+  # Step 6: Log success
+  - action: log.info
+    params:
+      message: |
+        ✓ Issue created successfully!
+        
+        Result: {{issue_result}}
