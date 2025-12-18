@@ -292,6 +292,16 @@ export class MCPClient implements IMCPClient {
 
     throw new Error(`Mock not implemented for ${serverName}.${toolName}`);
   }
+
+  /**
+   * Disconnect all connected servers
+   */
+  async disconnectAll(): Promise<void> {
+    const servers = Array.from(this.connections.keys());
+    for (const serverName of servers) {
+      await this.disconnect(serverName);
+    }
+  }
 }
 
 interface MCPConnection {

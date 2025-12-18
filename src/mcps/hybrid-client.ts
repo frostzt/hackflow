@@ -112,4 +112,14 @@ export class HybridMCPClient implements IMCPClient {
   getServerInfo(): Map<string, "real" | "mock"> {
     return new Map(this.serverTypes);
   }
+
+  /**
+   * Disconnect all connected servers
+   */
+  async disconnectAll(): Promise<void> {
+    const servers = Array.from(this.serverTypes.keys());
+    for (const serverName of servers) {
+      await this.disconnect(serverName);
+    }
+  }
 }

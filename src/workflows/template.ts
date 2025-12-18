@@ -69,7 +69,7 @@ export class TemplateEngine {
       interpolated = interpolated.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
         const trimmedKey = key.trim();
         const value = this.getNestedValue(context, trimmedKey);
-        
+
         // Return JSON-stringified value for safe evaluation
         return JSON.stringify(value);
       });
@@ -126,7 +126,7 @@ export class TemplateEngine {
 
     // Handle comparison operators
     const operators = ["===", "!==", "==", "!=", ">=", "<=", ">", "<"];
-    
+
     for (const op of operators) {
       if (expr.includes(op)) {
         const [left, right] = expr.split(op).map((s) => s.trim());

@@ -64,8 +64,45 @@ export class HackflowAgent {
       await this.mcpClient.autoConnect(workflow.mcps_required);
     }
 
+    // Apply default values from config_schema for missing variables
+    const configWithDefaults = this.applyConfigDefaults(workflow, config);
+
     // Execute the workflow
-    return this.executor.execute(workflow, config);
+    return this.executor.execute(workflow, configWithDefaults);
+  }
+
+  /**
+   * Apply default values from workflow config_schema
+   */
+  private applyConfigDefaults(
+    workflow: WorkflowDefinition,
+    config: WorkflowConfig,
+  ): WorkflowConfig {
+    if (!workflow.config_schema) {
+      return config;
+    }
+
+    const valuesWithDefaults = { ...config.values };
+
+    // Apply defaults for each config schema entry
+    for (const [key, schema] of Object.entries(workflow.config_schema)) {
+      // Only apply default if:
+      // 1. Variable is not already set
+      // 2. Schema has a default value
+      // 3. Required is false (or not specified, which defaults to false)
+      if (
+        valuesWithDefaults[key] === undefined &&
+        schema.default !== undefined &&
+        schema.required !== true
+      ) {
+        valuesWithDefaults[key] = schema.default;
+      }
+    }
+
+    return {
+      ...config,
+      values: valuesWithDefaults,
+    };
   }
 
   /**
@@ -124,6 +161,11 @@ export class HackflowAgent {
    * Close connections and cleanup
    */
   async shutdown(): Promise<void> {
+    // Disconnect all MCP servers
+    if (this.mcpClient && "disconnectAll" in this.mcpClient) {
+      await (this.mcpClient as any).disconnectAll();
+    }
+
     // Close prompt handler if available
     if (this.promptHandler && "close" in this.promptHandler) {
       (this.promptHandler as any).close();

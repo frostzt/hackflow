@@ -1,6 +1,5 @@
 # Git Commit Workflow
-# Stages changes, prompts for commit message, commits, and pushes
-
+# Stages changes, prompts for commit message, and commits
 name: git-add-commit-push
 description: Stage, commit, and push changes
 version: 1.0.0
@@ -63,21 +62,10 @@ steps:
     params:
       message: "✓ Committed: {{commit_result}}"
 
-  # Step 6: Push
-  - action: git.git_push
-    description: Push to remote
-    params:
-      repo_path: "{{repo_path}}"
-    output: push_result
-
-  - action: log.info
-    params:
-      message: "✓ Pushed to remote: {{push_result}}"
-
-  # Step 7: Success message
+  # Step 6: Success message
   - action: log.info
     params:
       message: |
         
         🎉 Success!
-        Added, committed, and pushed changes.
+        Added and committed. Please run "git push origin HEAD" to push to this branch.

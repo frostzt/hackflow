@@ -23,7 +23,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     private mcpClient: IMCPClient,
     private promptHandler?: IPromptHandler,
     private aiProvider?: IModelProvider,
-  ) {}
+  ) { }
 
   async execute(
     workflow: WorkflowDefinition,
