@@ -100,7 +100,7 @@ steps:
     params:
       owner: "{{owner}}"
       repo: "{{repo}}"
-      pullNumber: "{{pr_result.number}}"
+      pullNumber: "{{pr_result.id}}"
       method: "get"
     output: pr_details
 
@@ -115,8 +115,7 @@ steps:
         
         📋 DETAILS:
            Title:      {{title}}
-           PR Number:  #{{pr_result.number}}
-           Status:     {{pr_details.state}}
+           PR URL:     {{pr_result.url}}
            Draft:      {{draft}}
         
         🔀 BRANCHES:
@@ -128,9 +127,9 @@ steps:
         {{body}}
         
         🔗 LINKS:
-           View PR:    https://github.com/{{owner}}/{{repo}}/pull/{{pr_result.number}}
-           Files:      https://github.com/{{owner}}/{{repo}}/pull/{{pr_result.number}}/files
-           Checks:     https://github.com/{{owner}}/{{repo}}/pull/{{pr_result.number}}/checks
+           View PR:    {{pr_result.url}}
+           Files:      {{pr_result.url}}/files
+           Checks:     {{pr_result.url}}/checks
         
         ═══════════════════════════════════════════════════════════
         
