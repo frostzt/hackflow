@@ -1,0 +1,137 @@
+import type {
+  IStorageAdapter,
+  ISecurityGuard,
+  IMCPClient,
+  IPromptHandler,
+  IModelProvider,
+  IWorkflowExecutor,
+  WorkflowDefinition,
+  WorkflowConfig,
+  ExecutionResult,
+} from "../types/index.js";
+import { WorkflowExecutor } from "./executor.js";
+import { WorkflowLoader } from "../workflows/loader.js";
+
+/**
+ * Main Agent class - the entry point for workflow execution
+ */
+export class HackflowAgent {
+  private executor: IWorkflowExecutor;
+
+  constructor(
+    private storage: IStorageAdapter,
+    private _security: ISecurityGuard, // Reserved for future use
+    private mcpClient: IMCPClient,
+    private promptHandler?: IPromptHandler,
+    private _aiProvider?: IModelProvider, // Passed to executor
+  ) {
+    this.executor = new WorkflowExecutor(
+      storage,
+      _security,
+      mcpClient,
+      promptHandler,
+      _aiProvider,
+    );
+  }
+
+  /**
+   * Initialize the agent (setup storage, etc.)
+   */
+  async initialize(): Promise<void> {
+    await this.storage.initialize();
+  }
+
+  /**
+   * Execute a workflow from a file
+   */
+  async runWorkflowFile(
+    filePath: string,
+    config: WorkflowConfig,
+  ): Promise<ExecutionResult> {
+    const workflow = WorkflowLoader.loadFromFile(filePath);
+    return this.runWorkflow(workflow, config);
+  }
+
+  /**
+   * Execute a workflow definition
+   */
+  async runWorkflow(
+    workflow: WorkflowDefinition,
+    config: WorkflowConfig,
+  ): Promise<ExecutionResult> {
+    // Auto-connect to required MCP servers
+    if (workflow.mcps_required) {
+      await this.mcpClient.autoConnect(workflow.mcps_required);
+    }
+
+    // Execute the workflow
+    return this.executor.execute(workflow, config);
+  }
+
+  /**
+   * List recent workflow executions
+   */
+  async listExecutions(workflowName?: string, limit: number = 10) {
+    return this.storage.queryExecutions({
+      workflowName,
+      limit,
+    });
+  }
+
+  /**
+   * Get execution details
+   */
+  async getExecution(executionId: string) {
+    const execution = await this.storage.getExecution(executionId);
+    if (!execution) {
+      return null;
+    }
+
+    const steps = await this.storage.getSteps(executionId);
+    const context = await this.storage.getContext(executionId);
+
+    return {
+      execution,
+      steps,
+      context,
+    };
+  }
+
+  /**
+   * Resume a paused workflow
+   */
+  async resumeWorkflow(executionId: string): Promise<ExecutionResult> {
+    return this.executor.resume(executionId);
+  }
+
+  /**
+   * Cancel a running workflow
+   */
+  async cancelWorkflow(executionId: string): Promise<void> {
+    await this.executor.cancel(executionId);
+  }
+
+  /**
+   * Clean up old executions
+   */
+  async cleanup(daysOld: number = 30): Promise<number> {
+    const date = new Date();
+    date.setDate(date.getDate() - daysOld);
+    return this.storage.cleanup(date);
+  }
+
+  /**
+   * Close connections and cleanup
+   */
+  async shutdown(): Promise<void> {
+    // Close prompt handler if available
+    if (this.promptHandler && "close" in this.promptHandler) {
+      (this.promptHandler as any).close();
+    }
+
+    // Close storage if available
+    if (this.storage && "close" in this.storage) {
+      (this.storage as any).close();
+    }
+  }
+}
