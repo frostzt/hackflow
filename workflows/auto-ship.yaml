@@ -283,7 +283,7 @@ steps:
         🎯 PR/MR: Created with AI-generated description
         
         🔗 View your PR:
-        {{github_pr_result.pr_result.url}}
+        {{github_pr_result.final_pr_url}}
         
         ╚═══════════════════════════════════════════════════════════╝
     if: '{{provider}} == "github"'
@@ -302,7 +302,7 @@ steps:
         🎯 PR/MR: Created with AI-generated description
         
         🔗 View your MR:
-        {{gitlab_mr_result.mr_result.web_url}}
+        {{gitlab_mr_result.final_mr_url}}
         
         ╚═══════════════════════════════════════════════════════════╝
     if: '{{provider}} == "gitlab"'
