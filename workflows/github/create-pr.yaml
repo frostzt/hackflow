@@ -1,5 +1,6 @@
 # GitHub Create PR (Non-Interactive)
 # Creates a GitHub PR with provided parameters - no prompts
+# Handles case where PR already exists gracefully
 name: github-create-pr
 description: Create a GitHub pull request (non-interactive)
 version: 1.0.0
@@ -64,19 +65,54 @@ steps:
       maintainer_can_modify: true
     output: pr_result
 
-  # Log what we got back
+  # Check if PR was created successfully (has url) or already exists
+  - action: variable.set
+    params:
+      name: pr_created
+      value: true
+
+  - action: variable.set
+    params:
+      name: pr_created
+      value: false
+    if: '{{pr_result.url}} == ""'
+
+  # Success case - new PR created
   - action: log.info
     params:
       message: |
         
-        📋 PR Creation Result:
-        {{pr_result}}
+        ✅ Pull Request Created!
         
-        Branch: {{head}} → {{base}}
-        Repo: {{owner}}/{{repo}}
+        📋 Title: {{title}}
+        🔀 Branch: {{head}} → {{base}}
+        📁 Repo: {{owner}}/{{repo}}
+        🔗 URL: {{pr_result.url}}
+    if: '{{pr_created}} == true'
 
-  # Set final URL - use pr_result directly since structure may vary
+  # PR already exists case
+  - action: log.info
+    params:
+      message: |
+        
+        ℹ️  Pull Request Already Exists
+        
+        📋 Branch: {{head}} → {{base}}
+        📁 Repo: {{owner}}/{{repo}}
+        🔗 URL: https://github.com/{{owner}}/{{repo}}/pulls
+        
+        Your changes have been pushed to the existing PR.
+    if: '{{pr_created}} == false'
+
+  # Set final URL for parent workflow
   - action: variable.set
     params:
       name: final_pr_url
-      value: "{{pr_result}}"
+      value: "{{pr_result.url}}"
+    if: '{{pr_created}} == true'
+
+  - action: variable.set
+    params:
+      name: final_pr_url
+      value: "https://github.com/{{owner}}/{{repo}}/pulls"
+    if: '{{pr_created}} == false'
