@@ -1,0 +1,76 @@
+# Create and Switch to New Branch
+# Creates a new branch from current HEAD and switches to it
+name: git-create-branch
+description: Create and checkout new branch
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+
+config_schema:
+  branch_name:
+    type: string
+    description: Name of the new branch
+    required: true
+  
+  from_branch:
+    type: string
+    description: Create branch from this branch (optional, uses current if not specified)
+    required: false
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get current branch
+  - action: shell.execute_command
+    description: Get current branch
+    params:
+      command: "git"
+      args: ["rev-parse", "--abbrev-ref", "HEAD"]
+    output: current_branch
+
+  # Step 2: Check if branch already exists
+  - action: shell.execute_command
+    description: Check if branch exists
+    params:
+      command: "git"
+      args: ["rev-parse", "--verify", "{{branch_name}}"]
+    output: branch_exists
+    retry:
+      attempts: 0
+    # This will fail if branch doesn't exist - that's OK
+
+  # Step 3: Checkout from specific branch if specified
+  - action: shell.execute_command
+    description: Checkout from specified branch
+    params:
+      command: "git"
+      args: ["checkout", "-b", "{{branch_name}}", "{{from_branch}}"]
+    output: checkout_result
+    if: "{{from_branch}} != ''"
+
+  # Step 3b: Checkout from current if not specified
+  - action: shell.execute_command
+    description: Checkout from current HEAD
+    params:
+      command: "git"
+      args: ["checkout", "-b", "{{branch_name}}"]
+    output: checkout_result
+    if: "{{from_branch}} == ''"
+
+  # Step 4: Verify we're on the new branch
+  - action: shell.execute_command
+    description: Verify current branch
+    params:
+      command: "git"
+      args: ["rev-parse", "--abbrev-ref", "HEAD"]
+    output: new_current_branch
+
+  # Step 5: Success message
+  - action: log.info
+    params:
+      message: |
+        
+        ✅ Created and switched to branch: {{new_current_branch}}
+        Previous branch: {{current_branch}}

@@ -284,6 +284,8 @@ export interface ExecutionResult {
   error?: string;
   steps: StepResult[];
   duration: number;
+  context?: Record<string, any>;
+
 }
 
 // ============================================================================

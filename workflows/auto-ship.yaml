@@ -1,0 +1,256 @@
+# Auto Ship - Intelligent Git Workflow
+# Analyzes changes, creates branch, commits in chunks, pushes, and creates PR/MR
+# Minimal human intervention - AI does the heavy lifting!
+name: auto-ship
+description: Automatically ship your code changes with AI-powered commits and PR/MR
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+  - git
+
+config_schema:
+  provider:
+    type: string
+    description: Git provider (github or gitlab)
+    required: false
+    default: "github"
+  
+  target_branch:
+    type: string
+    description: Target branch to merge into
+    required: false
+    default: "main"
+  
+  skip_branch_creation:
+    type: boolean
+    description: Skip branch creation (already on feature branch)
+    required: false
+    default: false
+  
+  github_owner:
+    type: string
+    description: GitHub repository owner (required for github provider)
+    required: false
+  
+  github_repo:
+    type: string
+    description: GitHub repository name (required for github provider)
+    required: false
+  
+  gitlab_project_id:
+    type: string
+    description: GitLab project ID (required for gitlab provider)
+    required: false
+
+prompt_mode: static
+
+steps:
+  # ============================================================================
+  # PHASE 1: ANALYZE CHANGES
+  # ============================================================================
+  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              🚀 AUTO-SHIP INITIATED                       ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        Phase 1: Analyzing your changes with AI...
+
+  - action: workflow.run
+    description: Analyze changes with AI
+    params:
+      workflow: "git-analyze-changes"
+    output: analysis_result
+
+  # Extract analysis from result
+  - action: variable.set
+    params:
+      name: branch_name
+      value: "{{analysis_result.suggested_branch}}"
+
+  - action: variable.set
+    params:
+      name: change_summary
+      value: "{{analysis_result.change_summary}}"
+
+  - action: variable.set
+    params:
+      name: change_type
+      value: "{{analysis_result.change_type}}"
+
+  # ============================================================================
+  # PHASE 2: CREATE BRANCH
+  # ============================================================================
+  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              🌿 CREATING BRANCH                           ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        Branch: {{branch_name}}
+        Summary: {{change_summary}}
+    if: "{{skip_branch_creation}} == false"
+
+  - action: workflow.run
+    description: Create new branch
+    params:
+      workflow: "git-create-branch"
+      vars:
+        branch_name: "{{branch_name}}"
+    output: branch_result
+    if: "{{skip_branch_creation}} == false"
+
+  # ============================================================================
+  # PHASE 3: COMMIT IN LOGICAL CHUNKS
+  # ============================================================================
+  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              📦 CREATING SMART COMMITS                    ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        Creating commits for each logical group of changes...
+
+  # Note: This is a simplified version. In production, you'd loop through commit_groups
+  # For now, we'll create one comprehensive commit
+  
+  - action: workflow.run
+    description: Create smart commit
+    params:
+      workflow: "git-smart-commit"
+      vars:
+        files: "."
+        commit_description: "{{change_summary}}"
+    output: commit_result
+
+  # ============================================================================
+  # PHASE 4: PUSH TO REMOTE
+  # ============================================================================
+  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              ⬆️  PUSHING TO REMOTE                         ║
+        ╚═══════════════════════════════════════════════════════════╝
+
+  - action: workflow.run
+    description: Push to remote
+    params:
+      workflow: "git-push"
+      vars:
+        remote: "origin"
+        branch: "HEAD"
+    output: push_result
+
+  # ============================================================================
+  # PHASE 5: CREATE PR/MR
+  # ============================================================================
+  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              🎯 CREATING PR/MR                            ║
+        ╚═══════════════════════════════════════════════════════════╝
+
+  # Generate PR/MR details with AI
+  - action: workflow.run
+    description: Generate PR details
+    params:
+      workflow: "git-auto-pr"
+      vars:
+        provider: "{{provider}}"
+        target_branch: "{{target_branch}}"
+    output: pr_prep
+
+  # Get current branch for PR creation
+  - action: shell.execute_command
+    description: Get current branch
+    params:
+      command: "git"
+      args: ["rev-parse", "--abbrev-ref", "HEAD"]
+    output: final_branch
+
+  # Create GitHub PR
+  - action: github.create_pull_request
+    description: Create GitHub Pull Request
+    params:
+      owner: "{{github_owner}}"
+      repo: "{{github_repo}}"
+      head: "{{final_branch}}"
+      base: "{{target_branch}}"
+      title: "{{pr_prep.pr_title}}"
+      body: "{{pr_prep.pr_description}}"
+      draft: false
+      maintainer_can_modify: true
+    output: github_pr
+    if: "{{provider}} == 'github'"
+
+  # Create GitLab MR
+  - action: gitlab.create_merge_request
+    description: Create GitLab Merge Request
+    params:
+      project_id: "{{gitlab_project_id}}"
+      source_branch: "{{final_branch}}"
+      target_branch: "{{target_branch}}"
+      title: "{{pr_prep.pr_title}}"
+      description: "{{pr_prep.pr_description}}"
+      remove_source_branch: true
+    output: gitlab_mr
+    if: "{{provider}} == 'gitlab'"
+
+  # ============================================================================
+  # FINAL: SUCCESS MESSAGE
+  # ============================================================================
+  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              ✅ AUTO-SHIP COMPLETE!                       ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        🌿 Branch: {{final_branch}}
+        📝 Commits: Created with AI-generated messages
+        ⬆️  Pushed: Successfully pushed to origin
+        🎯 PR/MR: Created with AI-generated description
+        
+        🔗 View your PR/MR:
+        {{github_pr.url}}{{gitlab_mr.web_url}}
+        
+        ╚═══════════════════════════════════════════════════════════╝
+    if: "{{provider}} == 'github'"
+
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              ✅ AUTO-SHIP COMPLETE!                       ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        🌿 Branch: {{final_branch}}
+        📝 Commits: Created with AI-generated messages
+        ⬆️  Pushed: Successfully pushed to origin
+        🎯 PR/MR: Created with AI-generated description
+        
+        🔗 View your MR:
+        {{gitlab_mr.web_url}}
+        
+        ╚═══════════════════════════════════════════════════════════╝
+    if: "{{provider}} == 'gitlab'"

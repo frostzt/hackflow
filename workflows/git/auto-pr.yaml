@@ -1,0 +1,116 @@
+# Auto PR/MR with AI
+# Automatically creates PR or MR with AI-generated title and description
+name: git-auto-pr
+description: Create PR/MR with AI-generated title and description
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+
+config_schema:
+  provider:
+    type: string
+    description: Git provider (github or gitlab)
+    required: true
+  
+  target_branch:
+    type: string
+    description: Target branch to merge into
+    required: false
+    default: "main"
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get current branch
+  - action: shell.execute_command
+    description: Get current branch
+    params:
+      command: "git"
+      args: ["rev-parse", "--abbrev-ref", "HEAD"]
+    output: current_branch
+
+  # Step 2: Get remote URL to extract owner/repo
+  - action: shell.execute_command
+    description: Get remote URL
+    params:
+      command: "git"
+      args: ["remote", "get-url", "origin"]
+    output: remote_url
+
+  # Step 3: Get all commits on this branch not in target
+  - action: shell.execute_command
+    description: Get commit log
+    params:
+      command: "git"
+      args: ["log", "--oneline", "{{target_branch}}..HEAD"]
+    output: commit_log
+
+  # Step 4: Get full diff from target branch
+  - action: shell.execute_command
+    description: Get diff from target
+    params:
+      command: "git"
+      args: ["diff", "{{target_branch}}...HEAD", "--stat"]
+    output: diff_stat
+
+  # Step 5: AI generates PR title and description
+  - action: ai.generate
+    description: Generate PR/MR details
+    params:
+      prompt: |
+        Create a pull request title and description for these changes:
+        
+        Branch: {{current_branch}}
+        Target: {{target_branch}}
+        
+        Commits:
+        {{commit_log}}
+        
+        Changed files:
+        {{diff_stat}}
+        
+        Generate:
+        1. A clear, concise PR title (max 72 chars)
+        2. A detailed description with:
+           - What changed (bullet points)
+           - Why (motivation)
+           - How to test (if relevant)
+        
+        Return ONLY valid JSON:
+        {
+          "title": "Clear PR title",
+          "description": "## What Changed\n- Item 1\n- Item 2\n\n## Why\nExplanation\n\n## Testing\nHow to test"
+        }
+      temperature: 0.4
+      max_tokens: 800
+    output: pr_details_raw
+
+  # Step 6: Log generated details for user review
+  - action: log.info
+    params:
+      message: |
+        
+        📝 AI Generated PR/MR Details:
+        
+        Title: {{pr_details_raw.title}}
+        
+        Description:
+        {{pr_details_raw.description}}
+        
+        Branch: {{current_branch}} → {{target_branch}}
+        Provider: {{provider}}
+        
+        Ready to create PR/MR with these details.
+
+  # Step 7: Store details for use by parent workflow
+  - action: variable.set
+    params:
+      name: pr_title
+      value: "{{pr_details_raw.title}}"
+
+  - action: variable.set
+    params:
+      name: pr_description
+      value: "{{pr_details_raw.description}}"

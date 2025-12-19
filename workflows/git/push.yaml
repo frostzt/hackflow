@@ -1,0 +1,65 @@
+# Git Push Workflow
+# Pushes to current branch or specified remote/branch
+name: git-push
+description: Push commits to remote repository
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+
+config_schema:
+  remote:
+    type: string
+    description: Remote name
+    required: false
+    default: "origin"
+  
+  branch:
+    type: string
+    description: Branch to push (use HEAD for current branch)
+    required: false
+    default: "HEAD"
+  
+  force:
+    type: boolean
+    description: Force push
+    required: false
+    default: false
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get current branch name for logging
+  - action: shell.execute_command
+    description: Get current branch name
+    params:
+      command: "git"
+      args: ["rev-parse", "--abbrev-ref", "HEAD"]
+    output: current_branch
+
+  # Step 2: Push to remote
+  - action: shell.execute_command
+    description: Push to remote
+    params:
+      command: "git"
+      args: ["push", "{{remote}}", "{{branch}}"]
+    output: push_result
+    if: "{{force}} == false"
+
+  # Step 2b: Force push if requested
+  - action: shell.execute_command
+    description: Force push to remote
+    params:
+      command: "git"
+      args: ["push", "--force", "{{remote}}", "{{branch}}"]
+    output: push_result
+    if: "{{force}} == true"
+
+  # Step 3: Success message
+  - action: log.info
+    params:
+      message: |
+        
+        ✅ Successfully pushed to {{remote}}/{{branch}}
+        Current branch: {{current_branch}}
