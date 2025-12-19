@@ -1,6 +1,5 @@
 # GitHub Create PR (Non-Interactive)
 # Creates a GitHub PR with provided parameters - no prompts
-# If PR already exists, it will detect and skip creation
 name: github-create-pr
 description: Create a GitHub pull request (non-interactive)
 version: 1.0.0
@@ -51,8 +50,7 @@ config_schema:
 prompt_mode: static
 
 steps:
-  # Try to create the PR - GitHub API will return error if PR already exists
-  # We'll handle this in the parent workflow or future error handling
+  # Try to create the PR
   - action: github.create_pull_request
     description: Create GitHub pull request
     params:
@@ -66,20 +64,19 @@ steps:
       maintainer_can_modify: true
     output: pr_result
 
-  # Display result
+  # Log what we got back
   - action: log.info
     params:
       message: |
         
-        ✅ Pull Request Created!
+        📋 PR Creation Result:
+        {{pr_result}}
         
-        📋 Title: {{title}}
-        🔀 Branch: {{head}} → {{base}}
-        📁 Repo: {{owner}}/{{repo}}
-        🔗 URL: {{pr_result.url}}
+        Branch: {{head}} → {{base}}
+        Repo: {{owner}}/{{repo}}
 
-  # Set final URL for parent workflow
+  # Set final URL - use pr_result directly since structure may vary
   - action: variable.set
     params:
       name: final_pr_url
-      value: "{{pr_result.url}}"
+      value: "{{pr_result}}"
