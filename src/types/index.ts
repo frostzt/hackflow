@@ -198,12 +198,12 @@ export interface ISecurityGuard {
 
 export interface SecurityAction {
   type:
-    | "file.read"
-    | "file.write"
-    | "file.delete"
-    | "git.push"
-    | "api.call"
-    | "code.execute";
+  | "file.read"
+  | "file.write"
+  | "file.delete"
+  | "git.push"
+  | "api.call"
+  | "code.execute";
   target: string;
   params?: Record<string, any>;
 }

@@ -1,0 +1,101 @@
+# Analyze Git Changes with AI
+# Uses AI to understand what changed and suggest branch names and commit structure
+name: git-analyze-changes
+description: Analyze git changes and suggest branch name and commit strategy
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+  - git
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get git status
+  - action: git.git_status
+    description: Get current status
+    params:
+      repo_path: "."
+    output: git_status
+
+  # Step 2: Get diff of staged + unstaged changes
+  - action: shell.execute_command
+    description: Get full diff
+    params:
+      command: "git diff HEAD"
+    output: git_diff
+
+  # Step 3: Get list of changed files
+  - action: shell.execute_command
+    description: Get changed files
+    params:
+      command: "git diff --name-status HEAD"
+    output: changed_files
+
+  # Step 4a: AI suggests branch name
+  - action: ai.generate
+    description: Generate branch name
+    params:
+      prompt: |
+        Based on these changes, return ONLY a git branch name in format: type/description
+        
+        Changed files:
+        {{changed_files}}
+        
+        Types: feature, fix, refactor, docs, test, chore
+        Example: feature/user-auth
+        
+        CRITICAL: Output ONLY the branch name. NO explanation. NO markdown. NO extra words.
+        Just: type/description
+      temperature: 0.2
+      max_tokens: 20
+    output: suggested_branch
+
+  # Step 4b: AI generates summary
+  - action: ai.generate
+    description: Generate change summary
+    params:
+      prompt: |
+        Summarize these git changes in 1-2 sentences:
+        
+        Changed files:
+        {{changed_files}}
+        
+        Diff (first 2000 chars):
+        {{git_diff}}
+        
+        Be specific about what changed and why it matters.
+        Return ONLY the summary, no preamble.
+      temperature: 0.3
+      max_tokens: 150
+    output: change_summary
+
+  # Step 4c: AI determines change type
+  - action: ai.generate
+    description: Determine change type
+    params:
+      prompt: |
+        What type of change is this?
+        
+        Changed files:
+        {{changed_files}}
+        
+        Return ONLY ONE of: feature, fix, refactor, docs, test, chore
+        No explanation, just the word.
+      temperature: 0.2
+      max_tokens: 10
+    output: change_type
+
+  # Step 5: Display analysis
+  - action: log.info
+    params:
+      message: |
+        
+        🔍 AI Analysis Complete:
+        
+        📊 Summary: {{change_summary}}
+        🌿 Suggested branch: {{suggested_branch}}
+        📦 Change type: {{change_type}}
+        
+        These values are available for parent workflows to use.

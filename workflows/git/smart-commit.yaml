@@ -1,0 +1,96 @@
+# Smart Commit with AI-Generated Messages
+# Commits specific files with AI-generated commit message
+name: git-smart-commit
+description: Commit files with AI-generated message based on changes
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+  - git
+
+config_schema:
+  files:
+    type: string
+    description: Files to commit (space-separated patterns)
+    required: true
+  
+  commit_description:
+    type: string
+    description: Brief description of what these changes do
+    required: true
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get diff for specific files
+  - action: shell.execute_command
+    description: Get diff for files
+    params:
+      command: "sh -c git diff HEAD -- {{files}}"
+    output: file_diff
+
+  # Step 2: AI generates commit message
+  - action: ai.generate
+    description: Generate commit message
+    params:
+      prompt: |
+        Generate a conventional commit message for these changes:
+        
+        Description: {{commit_description}}
+        
+        Diff:
+        {{file_diff}}
+        
+        Follow conventional commits format: type(scope): description
+        Types: feat, fix, refactor, docs, test, chore, style, perf
+        
+        Rules:
+        - Use imperative mood ("add" not "added")
+        - Be specific but concise (max 72 chars for first line)
+        - No period at end of subject line
+        - Add body if changes are complex (wrapped at 72 chars)
+        
+        Return ONLY the commit message, no quotes or explanation.
+        Format:
+        type(scope): subject
+        
+        Optional body explaining the change in detail.
+      temperature: 0.3
+      max_tokens: 200
+    output: commit_message
+
+  # Step 3: Stage the specific files
+  - action: shell.execute_command
+    description: Stage files
+    params:
+      command: "sh -c git add {{files}}"
+    output: add_result
+
+  # Step 4: Commit with AI-generated message
+  - action: git.git_commit
+    description: Commit changes
+    params:
+      repo_path: "."
+      message: "{{commit_message}}"
+    output: commit_result
+
+  # Step 5: Show what was committed
+  - action: shell.execute_command
+    description: Show commit details
+    params:
+      command: "git show --stat HEAD"
+    output: commit_details
+
+  # Step 6: Success message
+  - action: log.info
+    params:
+      message: |
+        
+        ✅ Committed changes:
+        
+        📝 Message:
+        {{commit_message}}
+        
+        📊 Stats:
+        {{commit_details}}

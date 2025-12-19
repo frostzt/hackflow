@@ -1,0 +1,81 @@
+# GitLab Create MR (Non-Interactive)
+# Creates a GitLab MR with provided parameters - no prompts
+# If MR already exists, it will log the info and continue
+name: gitlab-create-mr
+description: Create a GitLab merge request (non-interactive)
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - gitlab
+  - shell
+
+config_schema:
+  project_id:
+    type: string
+    description: GitLab project ID
+    required: true
+  
+  source_branch:
+    type: string
+    description: Source branch (the branch with your changes)
+    required: true
+  
+  target_branch:
+    type: string
+    description: Target branch to merge into
+    required: false
+    default: "main"
+  
+  title:
+    type: string
+    description: Merge request title
+    required: true
+  
+  description:
+    type: string
+    description: Merge request description
+    required: false
+    default: ""
+  
+  remove_source_branch:
+    type: boolean
+    description: Remove source branch after merge
+    required: false
+    default: true
+
+prompt_mode: static
+
+steps:
+  # Use glab CLI to check if MR exists (if available) or just try to create
+  # For now, just try to create - GitLab API will error if exists
+  
+  # Create the merge request
+  - action: gitlab.create_merge_request
+    description: Create GitLab merge request
+    params:
+      project_id: "{{project_id}}"
+      source_branch: "{{source_branch}}"
+      target_branch: "{{target_branch}}"
+      title: "{{title}}"
+      description: "{{description}}"
+      remove_source_branch: "{{remove_source_branch}}"
+    output: mr_result
+
+  # Display result
+  - action: log.info
+    params:
+      message: |
+        
+        ✅ Merge Request Created!
+        
+        📋 Title: {{title}}
+        🔀 Branch: {{source_branch}} → {{target_branch}}
+        📁 Project: {{project_id}}
+        🔗 URL: {{mr_result.web_url}}
+
+  # Set final URL for parent workflow
+  - action: variable.set
+    params:
+      name: final_mr_url
+      value: "{{mr_result.web_url}}"

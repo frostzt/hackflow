@@ -1,0 +1,118 @@
+# Auto PR/MR with AI
+# Automatically creates PR or MR with AI-generated title and description
+name: git-auto-pr
+description: Create PR/MR with AI-generated title and description
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+
+config_schema:
+  provider:
+    type: string
+    description: Git provider (github or gitlab)
+    required: true
+  
+  target_branch:
+    type: string
+    description: Target branch to merge into
+    required: false
+    default: "main"
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get current branch
+  - action: shell.execute_command
+    description: Get current branch
+    params:
+      command: "git rev-parse --abbrev-ref HEAD"
+    output: current_branch
+
+  # Step 2: Get remote URL to extract owner/repo
+  - action: shell.execute_command
+    description: Get remote URL
+    params:
+      command: "git remote get-url origin"
+    output: remote_url
+
+  # Step 3: Get all commits on this branch not in target
+  - action: shell.execute_command
+    description: Get commit log
+    params:
+      command: "git log --oneline {{target_branch}}..HEAD"
+    output: commit_log
+
+  # Step 4: Get full diff from target branch
+  - action: shell.execute_command
+    description: Get diff from target
+    params:
+      command: "git diff {{target_branch}}...HEAD --stat"
+    output: diff_stat
+
+  # Step 5: AI generates PR title
+  - action: ai.generate
+    description: Generate PR title
+    params:
+      prompt: |
+        Create a pull request title for these changes:
+        
+        Branch: {{current_branch}}
+        Target: {{target_branch}}
+        
+        Commits:
+        {{commit_log}}
+        
+        Rules:
+        - Max 72 characters
+        - Be specific and descriptive
+        - No quotes around the title
+        
+        Return ONLY the title text, nothing else.
+      temperature: 0.3
+      max_tokens: 50
+    output: pr_title
+
+  # Step 6: AI generates PR description
+  - action: ai.generate
+    description: Generate PR description
+    params:
+      prompt: |
+        Create a pull request description for these changes:
+        
+        Branch: {{current_branch}}
+        Target: {{target_branch}}
+        
+        Commits:
+        {{commit_log}}
+        
+        Changed files:
+        {{diff_stat}}
+        
+        Format with markdown:
+        ## What Changed
+        - bullet points
+        
+        ## Why
+        Brief explanation
+        
+        Return ONLY the description, no preamble.
+      temperature: 0.4
+      max_tokens: 500
+    output: pr_description
+
+  # Step 7: Log generated details
+  - action: log.info
+    params:
+      message: |
+        
+        📝 AI Generated PR/MR Details:
+        
+        Title: {{pr_title}}
+        
+        Description:
+        {{pr_description}}
+        
+        Branch: {{current_branch}} → {{target_branch}}
+        Provider: {{provider}}

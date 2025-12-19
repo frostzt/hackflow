@@ -1,0 +1,74 @@
+# Create and Switch to New Branch
+# Creates a new branch from current HEAD and switches to it
+name: git-create-branch
+description: Create and checkout new branch
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+
+config_schema:
+  branch_name:
+    type: string
+    description: Name of the new branch
+    required: true
+  
+  from_branch:
+    type: string
+    description: Create branch from this branch (optional, uses current if not specified)
+    required: false
+    default: ""
+
+prompt_mode: static
+
+steps:
+  # Step 1: Get current branch
+  - action: shell.execute_command
+    description: Get current branch
+    params:
+      command: "git rev-parse --abbrev-ref HEAD"
+    output: current_branch
+
+  # Step 2: Determine if from_branch is specified
+  - action: variable.set
+    params:
+      name: use_from_branch
+      value: false
+
+  - action: variable.set
+    params:
+      name: use_from_branch
+      value: true
+    if: "{{from_branch}} != ''"
+
+  # Step 3: Create branch from specified branch
+  - action: shell.execute_command
+    description: Create branch from specified branch
+    params:
+      command: "git checkout -b {{branch_name}} {{from_branch}}"
+    output: checkout_result
+    if: "{{use_from_branch}} == true"
+
+  # Step 4: Create branch from current HEAD
+  - action: shell.execute_command
+    description: Create branch from current HEAD
+    params:
+      command: "git checkout -b {{branch_name}}"
+    output: checkout_result
+    if: "{{use_from_branch}} == false"
+
+  # Step 5: Verify we're on the new branch
+  - action: shell.execute_command
+    description: Verify current branch
+    params:
+      command: "git rev-parse --abbrev-ref HEAD"
+    output: new_current_branch
+
+  # Step 4: Success message
+  - action: log.info
+    params:
+      message: |
+        
+        ✅ Created and switched to branch: {{new_current_branch}}
+        Previous branch: {{current_branch}}
