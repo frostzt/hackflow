@@ -1,7 +1,5 @@
 # 🔧 Hackflow
 
-BOOM BOOM
-
 **A hackable AI agent with workflow-based plugins**
 
 Hackflow is an extensible AI agent platform where workflows are plugins. Think of it as Vim for AI agents - minimal core, maximum customization.
