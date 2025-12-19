@@ -86,9 +86,45 @@ steps:
       value: "{{analysis_result.change_type}}"
 
   # ============================================================================
-  # PHASE 2: CREATE BRANCH
+  # PHASE 2: CREATE BRANCH (with smart detection)
   # ============================================================================
   
+  # Get current branch to check if we need to create a new one
+  - action: shell.execute_command
+    description: Get current branch
+    params:
+      command: "git rev-parse --abbrev-ref HEAD"
+    output: current_branch
+
+  # Determine if we should skip branch creation:
+  # - User explicitly requested skip OR
+  # - Already on a feature/fix/etc branch (not main/master/develop)
+  - action: variable.set
+    params:
+      name: should_create_branch
+      value: true
+
+  # Skip if user requested
+  - action: variable.set
+    params:
+      name: should_create_branch
+      value: false
+    if: '{{skip_branch_creation}} == true'
+
+  # Skip if already on a feature-like branch (contains /)
+  - action: variable.set
+    params:
+      name: should_create_branch
+      value: false
+    if: '{{current_branch}} != "main" && {{current_branch}} != "master" && {{current_branch}} != "develop"'
+
+  # Use current branch name if not creating new one
+  - action: variable.set
+    params:
+      name: branch_name
+      value: "{{current_branch}}"
+    if: '{{should_create_branch}} == false'
+
   - action: log.info
     params:
       message: |
@@ -99,7 +135,19 @@ steps:
         
         Branch: {{branch_name}}
         Summary: {{change_summary}}
-    if: '{{skip_branch_creation}} == false'
+    if: '{{should_create_branch}} == true'
+
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              🌿 USING EXISTING BRANCH                     ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        Already on branch: {{current_branch}}
+        Skipping branch creation.
+    if: '{{should_create_branch}} == false'
 
   - action: workflow.run
     description: Create new branch
@@ -108,7 +156,7 @@ steps:
       vars:
         branch_name: "{{branch_name}}"
     output: branch_result
-    if: '{{skip_branch_creation}} == false'
+    if: '{{should_create_branch}} == true'
 
   # ============================================================================
   # PHASE 3: COMMIT IN LOGICAL CHUNKS
