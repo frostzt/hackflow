@@ -12,6 +12,8 @@ import type {
 import { WorkflowExecutor } from "./executor.js";
 import { WorkflowLoader } from "../workflows/loader.js";
 import { WorkflowRegistry } from "../workflows/registry.js";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 
 /**
  * Main Agent class - the entry point for workflow execution
@@ -28,7 +30,11 @@ export class HackflowAgent {
     private _aiProvider?: IModelProvider, // Passed to executor
   ) {
     // Create workflow registry with default workflows directory
-    this.registry = new WorkflowRegistry("./workflows");
+    // Use absolute path relative to hackflow installation (dist/core/agent.js)
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const workflowsPath = join(__dirname, "../../workflows");
+    this.registry = new WorkflowRegistry(workflowsPath);
     
     this.executor = new WorkflowExecutor(
       storage,

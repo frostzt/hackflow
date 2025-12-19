@@ -1,0 +1,77 @@
+# GitHub Create PR (Non-Interactive)
+# Creates a GitHub PR with provided parameters - no prompts
+name: github-create-pr
+description: Create a GitHub pull request (non-interactive)
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - github
+
+config_schema:
+  owner:
+    type: string
+    description: Repository owner (username or organization)
+    required: true
+  
+  repo:
+    type: string
+    description: Repository name
+    required: true
+  
+  head:
+    type: string
+    description: Source branch (the branch with your changes)
+    required: true
+  
+  base:
+    type: string
+    description: Target branch to merge into
+    required: false
+    default: "main"
+  
+  title:
+    type: string
+    description: Pull request title
+    required: true
+  
+  body:
+    type: string
+    description: Pull request description
+    required: false
+    default: ""
+  
+  draft:
+    type: boolean
+    description: Create as draft PR
+    required: false
+    default: false
+
+prompt_mode: static
+
+steps:
+  # Create the pull request
+  - action: github.create_pull_request
+    description: Create GitHub pull request
+    params:
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      head: "{{head}}"
+      base: "{{base}}"
+      title: "{{title}}"
+      body: "{{body}}"
+      draft: "{{draft}}"
+      maintainer_can_modify: true
+    output: pr_result
+
+  # Display result
+  - action: log.info
+    params:
+      message: |
+        
+        ✅ Pull Request Created!
+        
+        📋 Title: {{title}}
+        🔀 Branch: {{head}} → {{base}}
+        📁 Repo: {{owner}}/{{repo}}
+        🔗 URL: {{pr_result.url}}

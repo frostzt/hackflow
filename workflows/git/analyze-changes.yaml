@@ -38,21 +38,18 @@ steps:
     description: Generate branch name
     params:
       prompt: |
-        Analyze these git changes and suggest a branch name:
+        Based on these changes, return ONLY a git branch name in format: type/description
         
         Changed files:
         {{changed_files}}
         
-        Diff (first 2000 chars):
-        {{git_diff}}
-        
-        Suggest a branch name following convention: type/short-description
         Types: feature, fix, refactor, docs, test, chore
-        Example: feature/user-authentication or fix/login-bug
+        Example: feature/user-auth
         
-        Return ONLY the branch name, nothing else.
-      temperature: 0.3
-      max_tokens: 50
+        CRITICAL: Output ONLY the branch name. NO explanation. NO markdown. NO extra words.
+        Just: type/description
+      temperature: 0.2
+      max_tokens: 20
     output: suggested_branch
 
   # Step 4b: AI generates summary

@@ -27,8 +27,7 @@ steps:
   - action: shell.execute_command
     description: Get diff for files
     params:
-      command: "sh"
-      args: ["-c", "git diff HEAD -- {{files}}"]
+      command: "sh -c git diff HEAD -- {{files}}"
     output: file_diff
 
   # Step 2: AI generates commit message
@@ -65,8 +64,7 @@ steps:
   - action: shell.execute_command
     description: Stage files
     params:
-      command: "sh"
-      args: ["-c", "git add {{files}}"]
+      command: "sh -c git add {{files}}"
     output: add_result
 
   # Step 4: Commit with AI-generated message
@@ -81,8 +79,7 @@ steps:
   - action: shell.execute_command
     description: Show commit details
     params:
-      command: "git"
-      args: ["show", "--stat", "HEAD"]
+      command: "git show --stat HEAD"
     output: commit_details
 
   # Step 6: Success message

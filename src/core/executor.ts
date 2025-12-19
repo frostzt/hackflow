@@ -50,8 +50,19 @@ export class WorkflowExecutor implements IWorkflowExecutor {
 
     await this.storage.saveExecution(execution);
 
-    // Initialize context with config values and any provided variables
+    // Apply defaults from config_schema first
+    const defaults: Record<string, any> = {};
+    if (workflow.config_schema) {
+      for (const [key, field] of Object.entries(workflow.config_schema)) {
+        if (field.default !== undefined) {
+          defaults[key] = field.default;
+        }
+      }
+    }
+
+    // Initialize context with defaults, then config values, then any provided variables
     const variables: Record<string, any> = {
+      ...defaults,
       ...config.values,
       ...context?.variables,
     };

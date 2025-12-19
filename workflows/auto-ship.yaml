@@ -9,6 +9,8 @@ author: hackflow
 mcps_required:
   - shell
   - git
+  - github
+  - gitlab
 
 config_schema:
   provider:
@@ -181,36 +183,38 @@ steps:
   - action: shell.execute_command
     description: Get current branch
     params:
-      command: "git"
-      args: ["rev-parse", "--abbrev-ref", "HEAD"]
+      command: "git rev-parse --abbrev-ref HEAD"
     output: final_branch
 
-  # Create GitHub PR
-  - action: github.create_pull_request
+  # Create GitHub PR using workflow
+  - action: workflow.run
     description: Create GitHub Pull Request
     params:
-      owner: "{{github_owner}}"
-      repo: "{{github_repo}}"
-      head: "{{final_branch}}"
-      base: "{{target_branch}}"
-      title: "{{pr_prep.pr_title}}"
-      body: "{{pr_prep.pr_description}}"
-      draft: false
-      maintainer_can_modify: true
-    output: github_pr
+      workflow: "github-create-pr"
+      vars:
+        owner: "{{github_owner}}"
+        repo: "{{github_repo}}"
+        head: "{{final_branch}}"
+        base: "{{target_branch}}"
+        title: "{{pr_prep.pr_title}}"
+        body: "{{pr_prep.pr_description}}"
+        draft: false
+    output: github_pr_result
     if: "{{provider}} == 'github'"
 
-  # Create GitLab MR
-  - action: gitlab.create_merge_request
+  # Create GitLab MR using workflow
+  - action: workflow.run
     description: Create GitLab Merge Request
     params:
-      project_id: "{{gitlab_project_id}}"
-      source_branch: "{{final_branch}}"
-      target_branch: "{{target_branch}}"
-      title: "{{pr_prep.pr_title}}"
-      description: "{{pr_prep.pr_description}}"
-      remove_source_branch: true
-    output: gitlab_mr
+      workflow: "gitlab-create-mr"
+      vars:
+        project_id: "{{gitlab_project_id}}"
+        source_branch: "{{final_branch}}"
+        target_branch: "{{target_branch}}"
+        title: "{{pr_prep.pr_title}}"
+        description: "{{pr_prep.pr_description}}"
+        remove_source_branch: true
+    output: gitlab_mr_result
     if: "{{provider}} == 'gitlab'"
 
   # ============================================================================
@@ -230,8 +234,8 @@ steps:
         ⬆️  Pushed: Successfully pushed to origin
         🎯 PR/MR: Created with AI-generated description
         
-        🔗 View your PR/MR:
-        {{github_pr.url}}{{gitlab_mr.web_url}}
+        🔗 View your PR:
+        {{github_pr_result.pr_result.url}}
         
         ╚═══════════════════════════════════════════════════════════╝
     if: "{{provider}} == 'github'"
@@ -250,7 +254,7 @@ steps:
         🎯 PR/MR: Created with AI-generated description
         
         🔗 View your MR:
-        {{gitlab_mr.web_url}}
+        {{gitlab_mr_result.mr_result.web_url}}
         
         ╚═══════════════════════════════════════════════════════════╝
     if: "{{provider}} == 'gitlab'"
