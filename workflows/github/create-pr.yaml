@@ -1,6 +1,6 @@
 # GitHub Create PR (Non-Interactive)
 # Creates a GitHub PR with provided parameters - no prompts
-# If PR already exists, it will log the info and continue
+# If PR already exists, it will detect and skip creation
 name: github-create-pr
 description: Create a GitHub pull request (non-interactive)
 version: 1.0.0
@@ -8,7 +8,6 @@ author: hackflow
 
 mcps_required:
   - github
-  - shell
 
 config_schema:
   owner:
@@ -52,42 +51,8 @@ config_schema:
 prompt_mode: static
 
 steps:
-  # Use gh CLI to check if PR exists (more reliable)
-  - action: shell.execute_command
-    description: Check for existing PR using gh CLI
-    params:
-      command: "gh pr list --repo {{owner}}/{{repo}} --head {{head}} --base {{base}} --state open --json url,number --limit 1"
-    output: existing_pr_json
-
-  # Check if we got a PR back (non-empty array means PR exists)
-  - action: variable.set
-    params:
-      name: pr_exists
-      value: false
-
-  - action: variable.set
-    params:
-      name: pr_exists  
-      value: true
-    if: '{{existing_pr_json}} != "[]"'
-
-  # If PR exists, just log it
-  - action: log.info
-    params:
-      message: |
-        
-        ℹ️  Pull Request Already Exists!
-        
-        📋 Branch: {{head}} → {{base}}
-        📁 Repo: {{owner}}/{{repo}}
-        
-        Existing PR info:
-        {{existing_pr_json}}
-        
-        Your changes have been pushed to the existing PR.
-    if: '{{pr_exists}} == true'
-
-  # Create the pull request only if it doesn't exist
+  # Try to create the PR - GitHub API will return error if PR already exists
+  # We'll handle this in the parent workflow or future error handling
   - action: github.create_pull_request
     description: Create GitHub pull request
     params:
@@ -100,9 +65,8 @@ steps:
       draft: "{{draft}}"
       maintainer_can_modify: true
     output: pr_result
-    if: '{{pr_exists}} == false'
 
-  # Display result for new PR
+  # Display result
   - action: log.info
     params:
       message: |
@@ -113,17 +77,9 @@ steps:
         🔀 Branch: {{head}} → {{base}}
         📁 Repo: {{owner}}/{{repo}}
         🔗 URL: {{pr_result.url}}
-    if: '{{pr_exists}} == false'
 
   # Set final URL for parent workflow
   - action: variable.set
     params:
       name: final_pr_url
       value: "{{pr_result.url}}"
-    if: '{{pr_exists}} == false'
-
-  - action: variable.set
-    params:
-      name: final_pr_url
-      value: "See existing PR info above"
-    if: '{{pr_exists}} == true'
