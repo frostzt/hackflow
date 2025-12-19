@@ -5,7 +5,7 @@ import type {
 } from "../types/index.js";
 import { homedir } from "os";
 import { join } from "path";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { WorkflowLoader } from "./loader.js";
 
 /**
@@ -17,15 +17,24 @@ import { WorkflowLoader } from "./loader.js";
 export class WorkflowRegistry implements IWorkflowRegistry {
   private workflowsDir: string;
   private metadataFile: string;
+  private inMemoryWorkflows: Map<string, WorkflowDefinition>;
 
   constructor(baseDir?: string) {
     this.workflowsDir = baseDir ?? join(homedir(), ".hackflow", "workflows");
     this.metadataFile = join(this.workflowsDir, "metadata.json");
+    this.inMemoryWorkflows = new Map();
     
     // Ensure directory exists
     if (!existsSync(this.workflowsDir)) {
       mkdirSync(this.workflowsDir, { recursive: true });
     }
+  }
+
+  /**
+   * Register a workflow in-memory (useful for testing and programmatic workflows)
+   */
+  async register(workflow: WorkflowDefinition): Promise<void> {
+    this.inMemoryWorkflows.set(workflow.name, workflow);
   }
 
   async install(source: string): Promise<string> {
@@ -68,20 +77,46 @@ export class WorkflowRegistry implements IWorkflowRegistry {
   }
 
   async get(name: string): Promise<WorkflowDefinition | null> {
-    const files = readdirSync(this.workflowsDir).filter(
-      (f) => f.endsWith(".yaml") || f.endsWith(".yml")
-    );
+    // Check in-memory workflows first
+    if (this.inMemoryWorkflows.has(name)) {
+      return this.inMemoryWorkflows.get(name)!;
+    }
 
-    for (const file of files) {
-      try {
-        const filePath = join(this.workflowsDir, file);
-        const workflow = WorkflowLoader.loadFromFile(filePath);
-        
-        if (workflow.name === name) {
-          return workflow;
+    // Then check file system recursively
+    const workflow = this.findWorkflowRecursive(this.workflowsDir, name);
+    return workflow;
+  }
+
+  /**
+   * Recursively search for a workflow by name
+   */
+  private findWorkflowRecursive(dir: string, name: string): WorkflowDefinition | null {
+    if (!existsSync(dir)) {
+      return null;
+    }
+
+    const entries = readdirSync(dir);
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      const stat = statSync(fullPath);
+
+      if (stat.isDirectory()) {
+        // Recursively search subdirectories
+        const result = this.findWorkflowRecursive(fullPath, name);
+        if (result) {
+          return result;
         }
-      } catch (error) {
-        // Skip invalid files
+      } else if (stat.isFile() && (entry.endsWith(".yaml") || entry.endsWith(".yml"))) {
+        // Check if this workflow file matches the name
+        try {
+          const workflow = WorkflowLoader.loadFromFile(fullPath);
+          if (workflow.name === name) {
+            return workflow;
+          }
+        } catch (error) {
+          // Skip invalid files
+        }
       }
     }
 

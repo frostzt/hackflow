@@ -271,12 +271,16 @@ export interface ExecutionContext {
 
   /** Resume from step index */
   resumeFromStep?: number;
+
+  /** Workflow call stack (for circular dependency detection) */
+  callStack?: string[];
 }
 
 export interface ExecutionResult {
   executionId: string;
   status: WorkflowExecution["status"];
   output?: any;
+  context?: Record<string, any>; // Alias for output (all variables after execution)
   error?: string;
   steps: StepResult[];
   duration: number;

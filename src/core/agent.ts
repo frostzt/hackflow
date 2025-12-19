@@ -11,12 +11,14 @@ import type {
 } from "../types/index.js";
 import { WorkflowExecutor } from "./executor.js";
 import { WorkflowLoader } from "../workflows/loader.js";
+import { WorkflowRegistry } from "../workflows/registry.js";
 
 /**
  * Main Agent class - the entry point for workflow execution
  */
 export class HackflowAgent {
   private executor: IWorkflowExecutor;
+  private registry: WorkflowRegistry;
 
   constructor(
     private storage: IStorageAdapter,
@@ -25,11 +27,15 @@ export class HackflowAgent {
     private promptHandler?: IPromptHandler,
     private _aiProvider?: IModelProvider, // Passed to executor
   ) {
+    // Create workflow registry with default workflows directory
+    this.registry = new WorkflowRegistry("./workflows");
+    
     this.executor = new WorkflowExecutor(
       storage,
-      _security,
       mcpClient,
       promptHandler,
+      _security,
+      this.registry, // Pass registry to executor for workflow composition
       _aiProvider,
     );
   }

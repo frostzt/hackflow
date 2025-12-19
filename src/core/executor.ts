@@ -6,6 +6,7 @@ import type {
   IMCPClient,
   IPromptHandler,
   IModelProvider,
+  IWorkflowRegistry,
   WorkflowDefinition,
   WorkflowConfig,
   ExecutionContext,
@@ -19,9 +20,10 @@ import { TemplateEngine } from "../workflows/template.js";
 export class WorkflowExecutor implements IWorkflowExecutor {
   constructor(
     private storage: IStorageAdapter,
-    private _security: ISecurityGuard, // Reserved for future security checks
     private mcpClient: IMCPClient,
     private promptHandler?: IPromptHandler,
+    private _security?: ISecurityGuard, // Reserved for future security checks
+    private workflowRegistry?: IWorkflowRegistry,
     private aiProvider?: IModelProvider,
   ) { }
 
@@ -54,6 +56,9 @@ export class WorkflowExecutor implements IWorkflowExecutor {
       ...context?.variables,
     };
 
+    // Initialize call stack for circular dependency detection
+    const callStack = context?.callStack ?? [];
+
     await this.storage.saveContext(executionId, variables);
 
     const steps: StepResult[] = [];
@@ -78,6 +83,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
           workflow,
           config,
           executionId,
+          callStack,
         );
 
         steps.push(stepResult);
@@ -119,6 +125,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         steps,
         duration: Date.now() - startTime,
         output: variables,
+        context: variables, // Alias for easier access in composed workflows
       };
     } catch (err) {
       error = (err as Error).message;
@@ -185,6 +192,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     workflow: WorkflowDefinition,
     config: WorkflowConfig,
     executionId: string,
+    callStack: string[] = [],
   ): Promise<StepResult> {
     const stepResult: StepResult = {
       stepIndex: index,
@@ -226,7 +234,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
       }
 
       // Execute the action
-      const output = await this.executeAction(step.action, params, variables);
+      const output = await this.executeAction(step.action, params, variables, callStack);
 
       stepResult.status = "completed";
       stepResult.output = output;
@@ -262,6 +270,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
           workflow,
           config,
           executionId,
+          callStack,
         );
       }
 
@@ -276,6 +285,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     action: string,
     params: Record<string, any>,
     variables: Record<string, any>,
+    callStack: string[] = [],
   ): Promise<any> {
     // Parse action (format: "namespace.action")
     const [namespace, actionName] = action.split(".");
@@ -303,9 +313,21 @@ export class WorkflowExecutor implements IWorkflowExecutor {
       return this.executeAIAction(actionName, params);
     }
 
+    if (namespace === "workflow") {
+      return this.executeWorkflowAction(actionName, params, variables, callStack);
+    }
+
     // MCP actions
     try {
-      return await this.mcpClient.callTool(namespace, actionName, params);
+      const result = await this.mcpClient.callTool(namespace, actionName, params);
+
+      // Special handling for shell commands: check exit codes and format output
+      if (namespace === "shell" && result) {
+        this.checkShellExitCode(result, action);
+        return this.formatShellResult(result);
+      }
+
+      return result;
     } catch (err) {
       throw new Error(
         `Failed to execute action ${action}: ${(err as Error).message}`,
@@ -428,7 +450,220 @@ Return only the interpretation, no explanation.`;
     }
   }
 
+  private async executeWorkflowAction(
+    action: string,
+    params: Record<string, any>,
+    variables: Record<string, any>,
+    callStack: string[],
+  ): Promise<any> {
+    if (!this.workflowRegistry) {
+      throw new Error(
+        "Workflow registry not available. Cannot execute workflow composition.",
+      );
+    }
+
+    switch (action) {
+      case "run":
+        return this.executeChildWorkflow(params, variables, callStack);
+
+      default:
+        throw new Error(`Unknown workflow action: ${action}`);
+    }
+  }
+
+  private async executeChildWorkflow(
+    params: Record<string, any>,
+    parentVariables: Record<string, any>,
+    callStack: string[],
+  ): Promise<any> {
+    const workflowName = params.workflow;
+
+    if (!workflowName) {
+      throw new Error(
+        "workflow.run requires a 'workflow' parameter specifying the workflow name",
+      );
+    }
+
+    // Circular dependency detection
+    if (callStack.includes(workflowName)) {
+      throw new Error(
+        `Circular dependency detected: ${callStack.join(" → ")} → ${workflowName}`,
+      );
+    }
+
+    // Load the child workflow
+    const childWorkflow = await this.workflowRegistry!.get(workflowName);
+
+    if (!childWorkflow) {
+      throw new Error(
+        `Workflow '${workflowName}' not found. Make sure it's registered or available in the workflows directory.`,
+      );
+    }
+
+
+
+    // Prepare variables to pass to child workflow
+    const childVars: Record<string, any> = {};
+
+    // If vars are explicitly provided, use them
+    if (params.vars) {
+      // Interpolate the vars object to resolve any {{variable}} references
+      const interpolatedVars = TemplateEngine.interpolateObject(
+        params.vars,
+        parentVariables,
+      );
+      Object.assign(childVars, interpolatedVars);
+    }
+
+    // Create new call stack with current workflow added
+    const newCallStack = [...callStack, workflowName];
+
+    // Execute child workflow with isolated context and call stack
+    const childResult = await this.execute(
+      childWorkflow,
+      { values: childVars },
+      { variables: {}, callStack: newCallStack },
+    );
+
+    // Check if child execution failed and propagate error
+    if (childResult.status === "failed") {
+      throw new Error(
+        `Child workflow '${workflowName}' failed: ${childResult.error}`,
+      );
+    }
+
+    // Return the child workflow's context (all variables)
+    return childResult.context;
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Checks if a shell command result contains a non-zero exit code and throws an error if so.
+   * The shell MCP server returns results in the format:
+   * "exit_code: 0\nstdout: ...\nstderr: ..."
+   */
+  private checkShellExitCode(result: any, action: string): void {
+    // Handle different result formats
+    let resultText: string;
+
+    if (typeof result === "string") {
+      resultText = result;
+    } else if (result && typeof result === "object") {
+      // Result might be in result.content, result.result, or directly contain exit_code
+      resultText = result.content || result.result || JSON.stringify(result);
+    } else {
+      // Can't parse, assume success
+      return;
+    }
+
+    // Look for exit_code in the response
+    const exitCodeMatch = resultText.match(/exit_code:\s*(\d+)/);
+
+    if (exitCodeMatch) {
+      const exitCode = parseInt(exitCodeMatch[1], 10);
+
+      if (exitCode !== 0) {
+        // Extract stderr if available for better error message
+        const stderrMatch = resultText.match(/stderr:\s*(.+?)(?=\n(?:exit_code|stdout|stderr):|$)/s);
+        const stdoutMatch = resultText.match(/stdout:\s*(.+?)(?=\n(?:exit_code|stdout|stderr):|$)/s);
+
+        const stderr = stderrMatch ? stderrMatch[1].trim() : "";
+        const stdout = stdoutMatch ? stdoutMatch[1].trim() : "";
+
+        let errorMessage = `Shell command failed with exit code ${exitCode}`;
+
+        if (stderr) {
+          errorMessage += `\nError output: ${stderr}`;
+        } else if (stdout) {
+          errorMessage += `\nOutput: ${stdout}`;
+        }
+
+        throw new Error(errorMessage);
+      }
+    }
+  }
+
+  /**
+   * Formats shell command results to return clean stdout/stderr instead of raw JSON.
+   * The shell MCP server returns results in the format:
+   * { result: "exit_code: 0\nstdout: ...\nstderr: ..." }
+   * 
+   * This method parses that and returns just the relevant output.
+   */
+  private formatShellResult(result: any): string {
+    // Handle different result formats
+    let resultText: string;
+    
+    if (typeof result === "string") {
+      resultText = result;
+    } else if (result && typeof result === "object") {
+      // Result might be in result.content, result.result, or directly contain exit_code
+      resultText = result.content || result.result || JSON.stringify(result);
+    } else {
+      // Can't parse, return as is
+      return result;
+    }
+
+    // Extract stdout and stderr using more precise regex
+    const stdoutMatch = resultText.match(/stdout:\s*([\s\S]*?)(?=\nstderr:|$)/);
+    const stderrMatch = resultText.match(/stderr:\s*([\s\S]*?)(?=\nexit_code:|$)/);
+    
+    let output = "";
+    
+    if (stdoutMatch) {
+      let stdout = stdoutMatch[1].trim();
+      
+      // Clean up YAML-style multiline strings (|, |+, |-)
+      stdout = stdout.replace(/^\|[+-]?\s*\n/, '');
+      
+      // Remove surrounding quotes (handle both single and double quotes)
+      stdout = stdout.replace(/^["']|["']$/g, '');
+      
+      // Unescape common escape sequences
+      stdout = stdout
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\e\[\d+m/g, '') // Remove ANSI color codes like \e[32m
+        .replace(/\\e\[[\d;]+m/g, ''); // Remove complex ANSI codes
+      
+      // Clean up any remaining escaped characters or extra whitespace
+      stdout = stdout.trim();
+      
+      output += stdout;
+    }
+    
+    if (stderrMatch) {
+      let stderr = stderrMatch[1].trim();
+      
+      // Clean up YAML-style multiline strings
+      stderr = stderr.replace(/^\|[+-]?\s*\n/, '');
+      
+      // Remove surrounding quotes
+      stderr = stderr.replace(/^["']|["']$/g, '');
+      
+      // Unescape escape sequences
+      stderr = stderr
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+        .replace(/\\e\[\d+m/g, '')
+        .replace(/\\e\[[\d;]+m/g, '');
+      
+      stderr = stderr.trim();
+      
+      // Only include stderr if it has actual content
+      if (stderr && stderr !== "''" && stderr !== '""' && stderr !== '') {
+        if (output) output += "\n";
+        output += `[stderr]\n${stderr}`;
+      }
+    }
+    
+    return output || resultText;
   }
 }
