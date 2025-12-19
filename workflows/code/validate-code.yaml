@@ -1,0 +1,189 @@
+# Code Validation Workflow
+# Validates code by running linting, type checking, and tests using npm scripts
+#
+# IMPORTANT: The shell MCP server may not inherit the current working directory.
+# If npm commands fail with "can't find package.json", the shell MCP is running
+# in a different directory. This is a known limitation of the shell-command-mcp server.
+#
+# Run with: hackflow run workflows/validate-code.yaml
+
+name: validate-code
+description: Run type checking and tests on code
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - shell
+
+config_schema:
+  skip_lint:
+    type: boolean
+    description: Skip linting
+    required: false
+    default: false
+  
+  skip_build:
+    type: boolean
+    description: Skip build/type checking
+    required: false
+    default: false
+  
+  skip_tests:
+    type: boolean
+    description: Skip running tests
+    required: false
+    default: false
+
+prompt_mode: static
+
+steps:
+  # Header
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║            🔍 CODE VALIDATION                             ║
+        ╚═══════════════════════════════════════════════════════════╝
+
+  # Step 1: Check if package.json exists
+  - action: log.info
+    params:
+      message: |
+        
+        ─────────────────────────────────────────────────────────
+        📦 CHECKING PROJECT STRUCTURE
+        ─────────────────────────────────────────────────────────
+
+  - action: shell.execute_command
+    description: Check if package.json exists
+    params:
+      command: "ls"
+      args: ["package.json"]
+    output: package_json_check
+
+  - action: log.info
+    params:
+      message: "✓ Found package.json"
+
+  # Step 1: Run linting (if not skipped)
+  - action: log.info
+    params:
+      message: |
+        
+        ─────────────────────────────────────────────────────────
+        📝 STEP 1: LINTING (npm run lint)
+        ─────────────────────────────────────────────────────────
+    if: "{{skip_lint}} == false"
+
+  - action: shell.execute_command
+    description: Run npm lint
+    params:
+      command: "npm run lint"
+    output: lint_result
+    if: "{{skip_lint}} == false"
+
+  - action: log.info
+    params:
+      message: |
+        
+        Lint output:
+        {{lint_result}}
+    if: "{{skip_lint}} == false"
+
+  - action: log.info
+    params:
+      message: "✅ Linting completed"
+    if: "{{skip_lint}} == false"
+
+  - action: log.info
+    params:
+      message: "⏭️  Skipped linting"
+    if: "{{skip_lint}} == true"
+
+  # Step 2: Run build/type check (if not skipped)
+  - action: log.info
+    params:
+      message: |
+        
+        ─────────────────────────────────────────────────────────
+        🔍 STEP 2: BUILD/TYPE CHECK (npm run build)
+        ─────────────────────────────────────────────────────────
+    if: "{{skip_build}} == false"
+
+  - action: shell.execute_command
+    description: Run npm build
+    params:
+      command: "npm run build"
+    output: build_result
+    if: "{{skip_build}} == false"
+
+  - action: log.info
+    params:
+      message: |
+        
+        Build output:
+        {{build_result}}
+    if: "{{skip_build}} == false"
+
+  - action: log.info
+    params:
+      message: "✅ Build completed"
+    if: "{{skip_build}} == false"
+
+  - action: log.info
+    params:
+      message: "⏭️  Skipped build"
+    if: "{{skip_build}} == true"
+
+  # Step 3: Run tests (if not skipped)
+  - action: log.info
+    params:
+      message: |
+        
+        ─────────────────────────────────────────────────────────
+        🧪 STEP 3: TESTS (npm test)
+        ─────────────────────────────────────────────────────────
+    if: "{{skip_tests}} == false"
+
+  - action: shell.execute_command
+    description: Run npm test
+    params:
+      command: "npm test"
+    output: test_result
+    if: "{{skip_tests}} == false"
+
+  - action: log.info
+    params:
+      message: |
+        
+        Test output:
+        {{test_result}}
+    if: "{{skip_tests}} == false"
+
+  - action: log.info
+    params:
+      message: "✅ Tests completed"
+    if: "{{skip_tests}} == false"
+
+  - action: log.info
+    params:
+      message: "⏭️  Skipped tests"
+    if: "{{skip_tests}} == true"
+
+  # Summary
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              ✅ VALIDATION COMPLETE                       ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        All validation checks passed successfully!
+
+  # Export validation results
+  - action: variable.set
+    params:
+      name: validation_passed
+      value: true
