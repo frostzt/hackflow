@@ -1,7 +1,7 @@
 # Auto Ship - Intelligent Git Workflow
 # Analyzes changes, creates branch, commits in chunks, pushes, and creates PR/MR
 # Minimal human intervention - AI does the heavy lifting!
-name: auto-ship
+name: create-pr-upstream
 description: Automatically ship your code changes with AI-powered commits and PR/MR
 version: 1.0.0
 author: hackflow
