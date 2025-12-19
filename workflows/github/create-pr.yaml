@@ -65,54 +65,20 @@ steps:
       maintainer_can_modify: true
     output: pr_result
 
-  # Check if PR was created successfully (has url) or already exists
-  - action: variable.set
-    params:
-      name: pr_created
-      value: true
-
-  - action: variable.set
-    params:
-      name: pr_created
-      value: false
-    if: '{{pr_result.url}} == ""'
-
-  # Success case - new PR created
+  # Log the result - pr_result will either have url (success) or result (error)
   - action: log.info
     params:
       message: |
         
-        ✅ Pull Request Created!
+        📋 Pull Request Result:
         
-        📋 Title: {{title}}
-        🔀 Branch: {{head}} → {{base}}
-        📁 Repo: {{owner}}/{{repo}}
-        🔗 URL: {{pr_result.url}}
-    if: '{{pr_created}} == true'
+        Branch: {{head}} → {{base}}
+        Repo: {{owner}}/{{repo}}
+        
+        Response: {{pr_result}}
 
-  # PR already exists case
-  - action: log.info
-    params:
-      message: |
-        
-        ℹ️  Pull Request Already Exists
-        
-        📋 Branch: {{head}} → {{base}}
-        📁 Repo: {{owner}}/{{repo}}
-        🔗 URL: https://github.com/{{owner}}/{{repo}}/pulls
-        
-        Your changes have been pushed to the existing PR.
-    if: '{{pr_created}} == false'
-
-  # Set final URL for parent workflow
+  # Set final info for parent workflow
   - action: variable.set
     params:
       name: final_pr_url
-      value: "{{pr_result.url}}"
-    if: '{{pr_created}} == true'
-
-  - action: variable.set
-    params:
-      name: final_pr_url
-      value: "https://github.com/{{owner}}/{{repo}}/pulls"
-    if: '{{pr_created}} == false'
+      value: "https://github.com/{{owner}}/{{repo}}/pulls?q=head:{{head}}"
