@@ -17,15 +17,71 @@ import type {
 } from "../types/index.js";
 import { TemplateEngine } from "../workflows/template.js";
 
+/** Event emitter for real-time progress updates */
+export type ProgressEventType = 
+  | "execution:start"
+  | "execution:complete"
+  | "execution:failed"
+  | "step:start"
+  | "step:complete"
+  | "step:failed"
+  | "step:skipped"
+  | "child:start"
+  | "child:complete";
+
+export interface ProgressEvent {
+  type: ProgressEventType;
+  executionId: string;
+  workflowName: string;
+  timestamp: Date;
+  depth: number;
+  data?: {
+    stepIndex?: number;
+    stepName?: string;
+    action?: string;
+    description?: string;
+    duration?: number;
+    error?: string;
+    childExecutionId?: string;
+    output?: any;
+  };
+}
+
+export type ProgressHandler = (event: ProgressEvent) => void;
+
 export class WorkflowExecutor implements IWorkflowExecutor {
+  private progressHandlers: ProgressHandler[] = [];
+
   constructor(
     private storage: IStorageAdapter,
     private mcpClient: IMCPClient,
     private promptHandler?: IPromptHandler,
-    private _security?: ISecurityGuard, // Reserved for future security checks
+    private _security?: ISecurityGuard,
     private workflowRegistry?: IWorkflowRegistry,
     private aiProvider?: IModelProvider,
-  ) { }
+  ) {}
+
+  /** Register a progress handler for real-time updates */
+  onProgress(handler: ProgressHandler): void {
+    this.progressHandlers.push(handler);
+  }
+
+  /** Remove a progress handler */
+  offProgress(handler: ProgressHandler): void {
+    this.progressHandlers = this.progressHandlers.filter(h => h !== handler);
+  }
+
+  /** Emit a progress event to all handlers */
+  private emitProgress(event: ProgressEvent): void {
+    for (const handler of this.progressHandlers) {
+      try {
+        handler(event);
+      } catch (e) {
+        // Don't let handler errors break execution
+        console.error("Progress handler error:", e);
+      }
+    }
+  }
 
   async execute(
     workflow: WorkflowDefinition,
@@ -34,14 +90,20 @@ export class WorkflowExecutor implements IWorkflowExecutor {
   ): Promise<ExecutionResult> {
     const executionId = randomUUID();
     const startTime = Date.now();
+    const depth = context?.depth ?? 0;
 
-    // Initialize execution record
+    // Initialize execution record with all new fields
     const execution: WorkflowExecution = {
       id: executionId,
       workflowName: workflow.name,
       status: "running",
       startedAt: new Date(),
       currentStep: 0,
+      totalSteps: workflow.steps.length,
+      depth,
+      parentExecutionId: context?.parentExecutionId,
+      parentStepIndex: context?.parentStepIndex,
+      trigger: context?.trigger ?? { type: "cli" },
       metadata: {
         config: config.values,
         ...context?.metadata,
@@ -49,6 +111,15 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     };
 
     await this.storage.saveExecution(execution);
+
+    // Emit start event
+    this.emitProgress({
+      type: "execution:start",
+      executionId,
+      workflowName: workflow.name,
+      timestamp: new Date(),
+      depth,
+    });
 
     // Apply defaults from config_schema first
     const defaults: Record<string, any> = {};
@@ -74,6 +145,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
 
     const steps: StepResult[] = [];
     let error: string | undefined;
+    let errorStack: string | undefined;
 
     try {
       // Determine starting step (for resume)
@@ -86,7 +158,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         // Update current step
         await this.storage.updateExecution(executionId, { currentStep: i });
 
-        // Execute step
+        // Execute step with full context
         const stepResult = await this.executeStep(
           step,
           i,
@@ -95,10 +167,31 @@ export class WorkflowExecutor implements IWorkflowExecutor {
           config,
           executionId,
           callStack,
+          depth,
         );
 
         steps.push(stepResult);
         await this.storage.saveStepResult(executionId, stepResult);
+
+        // Emit step event
+        this.emitProgress({
+          type: stepResult.status === "completed" ? "step:complete" 
+               : stepResult.status === "skipped" ? "step:skipped"
+               : "step:failed",
+          executionId,
+          workflowName: workflow.name,
+          timestamp: new Date(),
+          depth,
+          data: {
+            stepIndex: i,
+            stepName: stepResult.stepName,
+            action: stepResult.action,
+            description: stepResult.description,
+            duration: stepResult.duration,
+            error: stepResult.error,
+            childExecutionId: stepResult.childExecutionId,
+          },
+        });
 
         // If step failed and no retry, stop execution
         if (stepResult.status === "failed") {
@@ -124,28 +217,55 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         }
       }
 
+      const duration = Date.now() - startTime;
+
       // Mark as completed
       await this.storage.updateExecution(executionId, {
         status: "completed",
         completedAt: new Date(),
+        duration,
+      });
+
+      // Emit completion event
+      this.emitProgress({
+        type: "execution:complete",
+        executionId,
+        workflowName: workflow.name,
+        timestamp: new Date(),
+        depth,
+        data: { duration },
       });
 
       return {
         executionId,
         status: "completed",
         steps,
-        duration: Date.now() - startTime,
+        duration,
         output: variables,
-        context: variables, // Alias for easier access in composed workflows
+        context: variables,
       };
     } catch (err) {
       error = (err as Error).message;
+      errorStack = (err as Error).stack;
+      const duration = Date.now() - startTime;
 
       // Mark as failed
       await this.storage.updateExecution(executionId, {
         status: "failed",
         completedAt: new Date(),
         error,
+        errorStack,
+        duration,
+      });
+
+      // Emit failure event
+      this.emitProgress({
+        type: "execution:failed",
+        executionId,
+        workflowName: workflow.name,
+        timestamp: new Date(),
+        depth,
+        data: { error, duration },
       });
 
       return {
@@ -153,7 +273,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         status: "failed",
         error,
         steps,
-        duration: Date.now() - startTime,
+        duration,
       };
     }
   }
@@ -179,7 +299,6 @@ export class WorkflowExecutor implements IWorkflowExecutor {
       );
     }
 
-    // Get workflow definition (would need to be stored or passed)
     throw new Error("Resume not yet fully implemented - needs workflow lookup");
   }
 
@@ -204,14 +323,34 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     config: WorkflowConfig,
     executionId: string,
     callStack: string[] = [],
+    depth: number = 0,
   ): Promise<StepResult> {
+    const stepStartTime = Date.now();
+    
     const stepResult: StepResult = {
       stepIndex: index,
       stepName: step.id ?? `step-${index}`,
       action: step.action,
+      description: step.description,
       status: "running",
       startedAt: new Date(),
+      retryAttempt: 0,
     };
+
+    // Emit step start event
+    this.emitProgress({
+      type: "step:start",
+      executionId,
+      workflowName: workflow.name,
+      timestamp: new Date(),
+      depth,
+      data: {
+        stepIndex: index,
+        stepName: stepResult.stepName,
+        action: step.action,
+        description: step.description,
+      },
+    });
 
     try {
       // Check condition (if specified)
@@ -222,15 +361,19 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         );
         if (!shouldExecute) {
           stepResult.status = "skipped";
+          stepResult.skipReason = `Condition not met: ${step.if}`;
           stepResult.completedAt = new Date();
+          stepResult.duration = Date.now() - stepStartTime;
           return stepResult;
         }
       }
 
-      // Interpolate parameters
+      // Interpolate parameters and store as input
       const params = step.params
         ? TemplateEngine.interpolateObject(step.params, variables)
         : {};
+      
+      stepResult.input = params;
 
       // Dry-run mode
       if (config.options?.dryRun) {
@@ -241,19 +384,36 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         stepResult.status = "completed";
         stepResult.output = { dryRun: true };
         stepResult.completedAt = new Date();
+        stepResult.duration = Date.now() - stepStartTime;
         return stepResult;
       }
 
       // Execute the action
-      const output = await this.executeAction(step.action, params, variables, callStack);
+      const output = await this.executeAction(
+        step.action,
+        params,
+        variables,
+        callStack,
+        executionId,
+        index,
+        depth,
+      );
 
       stepResult.status = "completed";
       stepResult.output = output;
       stepResult.completedAt = new Date();
+      stepResult.duration = Date.now() - stepStartTime;
+
+      // If this was a workflow.run action, the childExecutionId is in the output
+      if (step.action === "workflow.run" && output?._childExecutionId) {
+        stepResult.childExecutionId = output._childExecutionId;
+        delete output._childExecutionId;
+      }
 
       return stepResult;
     } catch (err) {
       const error = (err as Error).message;
+      const errorStack = (err as Error).stack;
 
       // Check if we should retry
       if (step.retry && step.retry.attempts > 0) {
@@ -274,7 +434,7 @@ export class WorkflowExecutor implements IWorkflowExecutor {
           },
         };
 
-        return this.executeStep(
+        const retryResult = await this.executeStep(
           retryStep,
           index,
           variables,
@@ -282,12 +442,18 @@ export class WorkflowExecutor implements IWorkflowExecutor {
           config,
           executionId,
           callStack,
+          depth,
         );
+        
+        retryResult.retryAttempt = (stepResult.retryAttempt ?? 0) + 1;
+        return retryResult;
       }
 
       stepResult.status = "failed";
       stepResult.error = error;
+      stepResult.errorStack = errorStack;
       stepResult.completedAt = new Date();
+      stepResult.duration = Date.now() - stepStartTime;
       return stepResult;
     }
   }
@@ -297,6 +463,9 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     params: Record<string, any>,
     variables: Record<string, any>,
     callStack: string[] = [],
+    executionId?: string,
+    stepIndex?: number,
+    depth: number = 0,
   ): Promise<any> {
     // Parse action (format: "namespace.action")
     const [namespace, actionName] = action.split(".");
@@ -325,7 +494,15 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     }
 
     if (namespace === "workflow") {
-      return this.executeWorkflowAction(actionName, params, variables, callStack);
+      return this.executeWorkflowAction(
+        actionName,
+        params,
+        variables,
+        callStack,
+        executionId,
+        stepIndex,
+        depth,
+      );
     }
 
     // MCP actions
@@ -434,7 +611,6 @@ export class WorkflowExecutor implements IWorkflowExecutor {
         });
 
       case "interpret":
-        // Interpret user input in context
         const interpretPrompt = `Given this user input: "${params.input}"
         
 Context: ${params.context || "None"}
@@ -443,7 +619,7 @@ Please interpret what the user means and extract the key information in a struct
 Return only the interpretation, no explanation.`;
 
         return this.aiProvider.generate(interpretPrompt, {
-          temperature: 0.3, // Lower temperature for more consistent interpretation
+          temperature: 0.3,
           maxTokens: 500,
         });
 
@@ -466,6 +642,9 @@ Return only the interpretation, no explanation.`;
     params: Record<string, any>,
     variables: Record<string, any>,
     callStack: string[],
+    parentExecutionId?: string,
+    parentStepIndex?: number,
+    parentDepth: number = 0,
   ): Promise<any> {
     if (!this.workflowRegistry) {
       throw new Error(
@@ -475,7 +654,14 @@ Return only the interpretation, no explanation.`;
 
     switch (action) {
       case "run":
-        return this.executeChildWorkflow(params, variables, callStack);
+        return this.executeChildWorkflow(
+          params,
+          variables,
+          callStack,
+          parentExecutionId,
+          parentStepIndex,
+          parentDepth,
+        );
 
       default:
         throw new Error(`Unknown workflow action: ${action}`);
@@ -486,6 +672,9 @@ Return only the interpretation, no explanation.`;
     params: Record<string, any>,
     parentVariables: Record<string, any>,
     callStack: string[],
+    parentExecutionId?: string,
+    parentStepIndex?: number,
+    parentDepth: number = 0,
   ): Promise<any> {
     const workflowName = params.workflow;
 
@@ -511,14 +700,19 @@ Return only the interpretation, no explanation.`;
       );
     }
 
-
+    // Emit child start event
+    this.emitProgress({
+      type: "child:start",
+      executionId: parentExecutionId || "",
+      workflowName: childWorkflow.name,
+      timestamp: new Date(),
+      depth: parentDepth + 1,
+    });
 
     // Prepare variables to pass to child workflow
     const childVars: Record<string, any> = {};
 
-    // If vars are explicitly provided, use them
     if (params.vars) {
-      // Interpolate the vars object to resolve any {{variable}} references
       const interpolatedVars = TemplateEngine.interpolateObject(
         params.vars,
         parentVariables,
@@ -529,12 +723,33 @@ Return only the interpretation, no explanation.`;
     // Create new call stack with current workflow added
     const newCallStack = [...callStack, workflowName];
 
-    // Execute child workflow with isolated context and call stack
+    // Execute child workflow with parent context for tracking
     const childResult = await this.execute(
       childWorkflow,
       { values: childVars },
-      { variables: {}, callStack: newCallStack },
+      {
+        variables: {},
+        callStack: newCallStack,
+        parentExecutionId,
+        parentStepIndex,
+        depth: parentDepth + 1,
+        trigger: { type: "workflow", source: callStack[callStack.length - 1] },
+      },
     );
+
+    // Emit child complete event
+    this.emitProgress({
+      type: "child:complete",
+      executionId: parentExecutionId || "",
+      workflowName: childWorkflow.name,
+      timestamp: new Date(),
+      depth: parentDepth + 1,
+      data: {
+        childExecutionId: childResult.executionId,
+        duration: childResult.duration,
+        error: childResult.error,
+      },
+    });
 
     // Check if child execution failed and propagate error
     if (childResult.status === "failed") {
@@ -543,41 +758,34 @@ Return only the interpretation, no explanation.`;
       );
     }
 
-    // Return the child workflow's context (all variables)
-    return childResult.context;
+    // Return the child workflow's context with execution ID attached
+    return {
+      ...childResult.context,
+      _childExecutionId: childResult.executionId,
+    };
   }
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  /**
-   * Checks if a shell command result contains a non-zero exit code and throws an error if so.
-   * The shell MCP server returns results in the format:
-   * "exit_code: 0\nstdout: ...\nstderr: ..."
-   */
   private checkShellExitCode(result: any, action: string): void {
-    // Handle different result formats
     let resultText: string;
 
     if (typeof result === "string") {
       resultText = result;
     } else if (result && typeof result === "object") {
-      // Result might be in result.content, result.result, or directly contain exit_code
       resultText = result.content || result.result || JSON.stringify(result);
     } else {
-      // Can't parse, assume success
       return;
     }
 
-    // Look for exit_code in the response
     const exitCodeMatch = resultText.match(/exit_code:\s*(\d+)/);
 
     if (exitCodeMatch) {
       const exitCode = parseInt(exitCodeMatch[1], 10);
 
       if (exitCode !== 0) {
-        // Extract stderr if available for better error message
         const stderrMatch = resultText.match(/stderr:\s*(.+?)(?=\n(?:exit_code|stdout|stderr):|$)/s);
         const stdoutMatch = resultText.match(/stdout:\s*(.+?)(?=\n(?:exit_code|stdout|stderr):|$)/s);
 
@@ -597,28 +805,17 @@ Return only the interpretation, no explanation.`;
     }
   }
 
-  /**
-   * Formats shell command results to return clean stdout/stderr instead of raw JSON.
-   * The shell MCP server returns results in the format:
-   * { result: "exit_code: 0\nstdout: ...\nstderr: ..." }
-   * 
-   * This method parses that and returns just the relevant output.
-   */
   private formatShellResult(result: any): string {
-    // Handle different result formats
     let resultText: string;
     
     if (typeof result === "string") {
       resultText = result;
     } else if (result && typeof result === "object") {
-      // Result might be in result.content, result.result, or directly contain exit_code
       resultText = result.content || result.result || JSON.stringify(result);
     } else {
-      // Can't parse, return as is
       return result;
     }
 
-    // Extract stdout and stderr using more precise regex
     const stdoutMatch = resultText.match(/stdout:\s*([\s\S]*?)(?=\nstderr:|$)/);
     const stderrMatch = resultText.match(/stderr:\s*([\s\S]*?)(?=\nexit_code:|$)/);
     
@@ -626,38 +823,23 @@ Return only the interpretation, no explanation.`;
     
     if (stdoutMatch) {
       let stdout = stdoutMatch[1].trim();
-      
-      // Clean up YAML-style multiline strings (|, |+, |-)
       stdout = stdout.replace(/^\|[+-]?\s*\n/, '');
-      
-      // Remove surrounding quotes (handle both single and double quotes)
       stdout = stdout.replace(/^["']|["']$/g, '');
-      
-      // Unescape common escape sequences
       stdout = stdout
         .replace(/\\n/g, '\n')
         .replace(/\\t/g, '\t')
         .replace(/\\"/g, '"')
         .replace(/\\'/g, "'")
-        .replace(/\\e\[\d+m/g, '') // Remove ANSI color codes like \e[32m
-        .replace(/\\e\[[\d;]+m/g, ''); // Remove complex ANSI codes
-      
-      // Clean up any remaining escaped characters or extra whitespace
+        .replace(/\\e\[\d+m/g, '')
+        .replace(/\\e\[[\d;]+m/g, '');
       stdout = stdout.trim();
-      
       output += stdout;
     }
     
     if (stderrMatch) {
       let stderr = stderrMatch[1].trim();
-      
-      // Clean up YAML-style multiline strings
       stderr = stderr.replace(/^\|[+-]?\s*\n/, '');
-      
-      // Remove surrounding quotes
       stderr = stderr.replace(/^["']|["']$/g, '');
-      
-      // Unescape escape sequences
       stderr = stderr
         .replace(/\\n/g, '\n')
         .replace(/\\t/g, '\t')
@@ -665,10 +847,8 @@ Return only the interpretation, no explanation.`;
         .replace(/\\'/g, "'")
         .replace(/\\e\[\d+m/g, '')
         .replace(/\\e\[[\d;]+m/g, '');
-      
       stderr = stderr.trim();
       
-      // Only include stderr if it has actual content
       if (stderr && stderr !== "''" && stderr !== '""' && stderr !== '') {
         if (output) output += "\n";
         output += `[stderr]\n${stderr}`;

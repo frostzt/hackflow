@@ -17,6 +17,7 @@ import {
   generateFishCompletion,
   getInstallInstructions,
 } from "./completion.js";
+import { CLIProgressReporter } from "./progress.js";
 
 const program = new Command();
 
@@ -39,6 +40,7 @@ program
   .option("-c, --config <file>", "Config file with workflow values")
   .option("-d, --dry-run", "Simulate execution without making changes")
   .option("-v, --verbose", "Verbose output")
+  .option("-q, --quiet", "Suppress progress output")
   .option("--mock-mcp", "Use mock MCP servers (for development/testing)")
   .option("--var <key=value>", "Set workflow variables", collect, [])
   .action(async (workflow: string, options: any) => {
@@ -46,6 +48,14 @@ program
       // Use real MCP by default, mock only if --mock-mcp flag is set
       const mcpType = options.mockMcp ? "mock" : "real";
       const agent = await createAgent(mcpType);
+
+      // Setup progress reporter unless quiet mode
+      if (!options.quiet && !options.dryRun) {
+        const progressReporter = new CLIProgressReporter({ 
+          verbose: options.verbose 
+        });
+        agent.onProgress((event) => progressReporter.handleEvent(event));
+      }
 
       // Parse variables
       const variables: Record<string, any> = {};
@@ -69,31 +79,42 @@ program
                          workflow.endsWith(".yml") ||
                          existsSync(workflow);
 
-      if (isFilePath) {
-        console.log(chalk.blue(`🚀 Running workflow file: ${workflow}`));
-      } else {
-        console.log(chalk.blue(`🚀 Running workflow: ${workflow}`));
+      if (options.quiet || options.dryRun) {
+        if (isFilePath) {
+          console.log(chalk.blue(`🚀 Running workflow file: ${workflow}`));
+        } else {
+          console.log(chalk.blue(`🚀 Running workflow: ${workflow}`));
+        }
+        
+        if (options.dryRun) {
+          console.log(chalk.yellow("⚠️  DRY RUN MODE - No changes will be made"));
+        }
+        console.log();
       }
-      
-      if (options.dryRun) {
-        console.log(chalk.yellow("⚠️  DRY RUN MODE - No changes will be made"));
-      }
-      console.log();
 
       // Use smart resolution - tries registry first, then file path
       const result = await agent.runWorkflowByName(workflow, config);
 
-      console.log();
-      if (result.status === "completed") {
-        console.log(chalk.green("✓ Workflow completed successfully"));
-        console.log(chalk.gray(`  Execution ID: ${result.executionId}`));
-        console.log(chalk.gray(`  Duration: ${result.duration}ms`));
-        console.log(chalk.gray(`  Steps: ${result.steps.length}`));
+      // Show summary (progress reporter already showed the progress)
+      if (options.quiet || options.dryRun) {
+        console.log();
+        if (result.status === "completed") {
+          console.log(chalk.green("✓ Workflow completed successfully"));
+          console.log(chalk.gray(`  Execution ID: ${result.executionId}`));
+          console.log(chalk.gray(`  Duration: ${result.duration}ms`));
+          console.log(chalk.gray(`  Steps: ${result.steps.length}`));
+        } else {
+          console.log(chalk.red("✗ Workflow failed"));
+          console.log(chalk.gray(`  Execution ID: ${result.executionId}`));
+          console.log(chalk.red(`  Error: ${result.error}`));
+          process.exit(1);
+        }
       } else {
-        console.log(chalk.red("✗ Workflow failed"));
-        console.log(chalk.gray(`  Execution ID: ${result.executionId}`));
-        console.log(chalk.red(`  Error: ${result.error}`));
-        process.exit(1);
+        // Progress reporter already showed completion, just show execution ID
+        console.log(chalk.gray(`Execution ID: ${result.executionId}`));
+        if (result.status === "failed") {
+          process.exit(1);
+        }
       }
 
       await agent.shutdown();
@@ -330,12 +351,14 @@ program
   .description("List recent workflow executions")
   .option("-w, --workflow <name>", "Filter by workflow name")
   .option("-l, --limit <number>", "Number of results", "10")
+  .option("-a, --all", "Include child executions (show all)")
   .action(async (options: any) => {
     try {
       const agent = await createAgent();
       const executions = await agent.listExecutions(
         options.workflow,
         parseInt(options.limit),
+        options.all,
       );
 
       if (executions.length === 0) {
@@ -353,17 +376,52 @@ program
               ? chalk.red
               : chalk.yellow;
 
-        console.log(`${statusColor("●")} ${exec.workflowName}`);
-        console.log(chalk.gray(`  ID: ${exec.id}`));
-        console.log(chalk.gray(`  Status: ${exec.status}`));
-        console.log(
-          chalk.gray(`  Started: ${exec.startedAt.toLocaleString()}`),
-        );
+        const statusIcon =
+          exec.status === "completed" ? "✓"
+          : exec.status === "failed" ? "✗"
+          : exec.status === "running" ? "◐"
+          : "○";
+
+        // Get child count if available
+        let childInfo = "";
+        if (!options.all) {
+          try {
+            const children = await agent.getChildExecutions(exec.id);
+            if (children.length > 0) {
+              childInfo = chalk.gray(` (${children.length} sub-workflow${children.length > 1 ? "s" : ""})`);
+            }
+          } catch {
+            // Ignore errors getting children
+          }
+        }
+
+        // Format duration
+        const duration = exec.duration 
+          ? formatDuration(exec.duration)
+          : exec.completedAt 
+            ? formatDuration(exec.completedAt.getTime() - exec.startedAt.getTime())
+            : "";
+
+        console.log(`${statusColor(statusIcon)} ${chalk.bold(exec.workflowName)}${childInfo}`);
+        console.log(chalk.gray(`   ID: ${exec.id.slice(0, 8)}...`));
+        console.log(chalk.gray(`   Status: ${exec.status}${duration ? ` • ${duration}` : ""}`));
+        console.log(chalk.gray(`   Started: ${exec.startedAt.toLocaleString()}`));
+        
+        if (exec.totalSteps) {
+          console.log(chalk.gray(`   Steps: ${exec.currentStep ?? 0}/${exec.totalSteps}`));
+        }
+        
         if (exec.error) {
-          console.log(chalk.red(`  Error: ${exec.error}`));
+          // Truncate error message
+          const shortError = exec.error.length > 60 
+            ? exec.error.slice(0, 60) + "..." 
+            : exec.error;
+          console.log(chalk.red(`   Error: ${shortError}`));
         }
         console.log();
       }
+
+      console.log(chalk.gray(`Tip: Use "hackflow show <id>" for full details`));
 
       await agent.shutdown();
     } catch (error) {
@@ -376,47 +434,101 @@ program
 program
   .command("show <executionId>")
   .description("Show details of a workflow execution")
-  .action(async (executionId: string) => {
+  .option("-t, --tree", "Show full execution tree with children")
+  .option("-v, --verbose", "Show all details including input/output")
+  .option("-c, --context", "Show execution context/variables")
+  .action(async (executionId: string, options: any) => {
     try {
       const agent = await createAgent();
-      const details = await agent.getExecution(executionId);
-
-      if (!details) {
-        console.log(chalk.red("Execution not found"));
-        process.exit(1);
-      }
-
-      const { execution, steps, context } = details;
-
-      console.log(chalk.bold("\nExecution Details:\n"));
-      console.log(`Workflow: ${chalk.cyan(execution.workflowName)}`);
-      console.log(`ID: ${execution.id}`);
-      console.log(`Status: ${getStatusBadge(execution.status)}`);
-      console.log(`Started: ${execution.startedAt.toLocaleString()}`);
-      if (execution.completedAt) {
-        console.log(`Completed: ${execution.completedAt.toLocaleString()}`);
-      }
-
-      console.log(chalk.bold("\nSteps:\n"));
-      for (const step of steps) {
-        const statusIcon =
-          step.status === "completed"
-            ? chalk.green("✓")
-            : step.status === "failed"
-              ? chalk.red("✗")
-              : step.status === "skipped"
-                ? chalk.gray("○")
-                : chalk.yellow("◐");
-
-        console.log(`${statusIcon} ${step.action}`);
-        if (step.error) {
-          console.log(chalk.red(`  Error: ${step.error}`));
+      
+      // Handle partial execution ID
+      let fullId = executionId;
+      if (executionId.length < 36) {
+        // Try to find matching execution
+        const executions = await agent.listExecutions(undefined, 100, true);
+        const match = executions.find(e => e.id.startsWith(executionId));
+        if (match) {
+          fullId = match.id;
         }
       }
 
-      if (Object.keys(context).length > 0) {
-        console.log(chalk.bold("\nContext:\n"));
-        console.log(JSON.stringify(context, null, 2));
+      if (options.tree) {
+        // Show full tree
+        const tree = await agent.getExecutionTree(fullId);
+        console.log(chalk.bold("\nExecution Tree:\n"));
+        printExecutionTree(tree, 0, options.verbose);
+      } else {
+        // Show single execution details
+        const details = await agent.getExecution(fullId);
+
+        if (!details) {
+          console.log(chalk.red("Execution not found"));
+          process.exit(1);
+        }
+
+        const { execution, steps, context } = details;
+
+        // Header
+        console.log(chalk.bold("\n═══════════════════════════════════════════════════════════"));
+        console.log(chalk.bold(`  ${execution.workflowName}`));
+        console.log(chalk.bold("═══════════════════════════════════════════════════════════\n"));
+
+        // Status and metadata
+        console.log(`${chalk.gray("ID:")}       ${execution.id}`);
+        console.log(`${chalk.gray("Status:")}   ${getStatusBadge(execution.status)}`);
+        console.log(`${chalk.gray("Started:")}  ${execution.startedAt.toLocaleString()}`);
+        if (execution.completedAt) {
+          console.log(`${chalk.gray("Completed:")} ${execution.completedAt.toLocaleString()}`);
+        }
+        if (execution.duration) {
+          console.log(`${chalk.gray("Duration:")} ${formatDuration(execution.duration)}`);
+        }
+        if (execution.totalSteps) {
+          console.log(`${chalk.gray("Progress:")} ${execution.currentStep ?? 0}/${execution.totalSteps} steps`);
+        }
+        if (execution.parentExecutionId) {
+          console.log(`${chalk.gray("Parent:")}   ${execution.parentExecutionId.slice(0, 8)}...`);
+        }
+        if (execution.trigger) {
+          console.log(`${chalk.gray("Trigger:")}  ${execution.trigger.type}${execution.trigger.source ? ` (${execution.trigger.source})` : ""}`);
+        }
+
+        // Steps
+        console.log(chalk.bold("\n─── Steps ───────────────────────────────────────────────────\n"));
+        
+        for (const step of steps) {
+          printStep(step, options.verbose);
+        }
+
+        // Error details
+        if (execution.error) {
+          console.log(chalk.bold("\n─── Error ───────────────────────────────────────────────────\n"));
+          console.log(chalk.red(execution.error));
+          if (options.verbose && execution.errorStack) {
+            console.log(chalk.gray("\nStack trace:"));
+            console.log(chalk.gray(execution.errorStack));
+          }
+        }
+
+        // Child executions
+        const children = await agent.getChildExecutions(fullId);
+        if (children.length > 0) {
+          console.log(chalk.bold("\n─── Child Workflows ─────────────────────────────────────────\n"));
+          for (const child of children) {
+            const childStatus = getStatusBadge(child.status);
+            const childDuration = child.duration ? formatDuration(child.duration) : "";
+            console.log(`  ${childStatus} ${child.workflowName} ${chalk.gray(`(${child.id.slice(0, 8)}...)`)} ${chalk.gray(childDuration)}`);
+          }
+          console.log(chalk.gray("\n  Use --tree to see full nested view"));
+        }
+
+        // Context
+        if (options.context && Object.keys(context).length > 0) {
+          console.log(chalk.bold("\n─── Context ─────────────────────────────────────────────────\n"));
+          console.log(JSON.stringify(context, null, 2));
+        }
+
+        console.log();
       }
 
       await agent.shutdown();
@@ -466,6 +578,55 @@ program
       console.log(chalk.gray("  2. Run workflows: hackflow run auto-ship"));
       console.log(chalk.gray("  3. Enable tab completion: hackflow completion"));
       await agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+// UI command - start the web-based UI explorer
+program
+  .command("ui")
+  .description("Start the web-based UI explorer to view workflow executions")
+  .option("-p, --port <number>", "Port number", "3333")
+  .option("-h, --host <host>", "Host to bind to", "localhost")
+  .option("-o, --open", "Open browser automatically")
+  .action(async (options: any) => {
+    try {
+      const agent = await createAgent();
+      const { UIServer } = await import("../ui/server.js");
+      
+      const server = new UIServer({
+        port: parseInt(options.port),
+        host: options.host,
+        storage: agent.getStorage(),
+      });
+
+      const url = await server.start();
+      
+      console.log(chalk.bold("\n╔══════════════════════════════════════════════════════════╗"));
+      console.log(chalk.bold("║            Hackflow Explorer                              ║"));
+      console.log(chalk.bold("╚══════════════════════════════════════════════════════════╝\n"));
+      console.log(`  ${chalk.green("✓")} Server running at ${chalk.cyan(url)}`);
+      console.log();
+      console.log(chalk.gray("  Press Ctrl+C to stop the server\n"));
+
+      // Open browser if requested
+      if (options.open) {
+        const { exec } = await import("child_process");
+        const openCmd = process.platform === "darwin" ? "open" 
+          : process.platform === "win32" ? "start" 
+          : "xdg-open";
+        exec(`${openCmd} ${url}`);
+      }
+
+      // Keep process alive
+      process.on("SIGINT", async () => {
+        console.log(chalk.gray("\n  Shutting down..."));
+        await server.stop();
+        await agent.shutdown();
+        process.exit(0);
+      });
     } catch (error) {
       console.error(chalk.red("Error:"), (error as Error).message);
       process.exit(1);
@@ -549,14 +710,116 @@ function collect(value: string, previous: string[]): string[] {
 function getStatusBadge(status: string): string {
   switch (status) {
     case "completed":
-      return chalk.green("completed");
+      return chalk.green("✓ completed");
     case "failed":
-      return chalk.red("failed");
+      return chalk.red("✗ failed");
     case "running":
-      return chalk.yellow("running");
+      return chalk.yellow("◐ running");
     case "paused":
-      return chalk.blue("paused");
+      return chalk.blue("⏸ paused");
+    case "skipped":
+      return chalk.gray("○ skipped");
     default:
       return chalk.gray(status);
   }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+  return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
+}
+
+function printStep(step: any, verbose: boolean = false): void {
+  const statusIcon =
+    step.status === "completed"
+      ? chalk.green("✓")
+      : step.status === "failed"
+        ? chalk.red("✗")
+        : step.status === "skipped"
+          ? chalk.gray("○")
+          : chalk.yellow("◐");
+
+  const duration = step.duration ? chalk.gray(` (${formatDuration(step.duration)})`) : "";
+  const desc = step.description ? chalk.gray(` - ${step.description}`) : "";
+  
+  console.log(`  ${statusIcon} ${chalk.white(step.action)}${duration}${desc}`);
+  
+  if (step.childExecutionId) {
+    console.log(chalk.cyan(`     └─ Child workflow: ${step.childExecutionId.slice(0, 8)}...`));
+  }
+
+  if (step.skipReason) {
+    console.log(chalk.gray(`     Skipped: ${step.skipReason}`));
+  }
+
+  if (step.error) {
+    console.log(chalk.red(`     Error: ${step.error}`));
+  }
+
+  if (verbose) {
+    if (step.input && Object.keys(step.input).length > 0) {
+      console.log(chalk.gray("     Input:"), JSON.stringify(step.input, null, 2).split("\n").join("\n     "));
+    }
+    if (step.output !== undefined) {
+      const outputStr = typeof step.output === "string" 
+        ? step.output.slice(0, 200) + (step.output.length > 200 ? "..." : "")
+        : JSON.stringify(step.output, null, 2).slice(0, 200);
+      console.log(chalk.gray("     Output:"), outputStr.split("\n").join("\n     "));
+    }
+  }
+}
+
+function printExecutionTree(tree: any, depth: number = 0, verbose: boolean = false): void {
+  const indent = "  ".repeat(depth);
+  const prefix = depth === 0 ? "" : "├─ ";
+  
+  const { execution, steps, children } = tree;
+  
+  const statusIcon =
+    execution.status === "completed"
+      ? chalk.green("✓")
+      : execution.status === "failed"
+        ? chalk.red("✗")
+        : chalk.yellow("◐");
+
+  const duration = execution.duration ? chalk.gray(` (${formatDuration(execution.duration)})`) : "";
+  
+  console.log(`${indent}${prefix}${statusIcon} ${chalk.bold(execution.workflowName)}${duration}`);
+  console.log(`${indent}   ${chalk.gray(`ID: ${execution.id.slice(0, 8)}... • ${steps.length} steps`)}`);
+  
+  if (execution.error) {
+    const shortError = execution.error.length > 50 ? execution.error.slice(0, 50) + "..." : execution.error;
+    console.log(`${indent}   ${chalk.red(`Error: ${shortError}`)}`);
+  }
+
+  // Print steps
+  if (verbose || depth === 0) {
+    console.log(`${indent}   ${chalk.gray("Steps:")}`);
+    for (const step of steps) {
+      const stepIcon =
+        step.status === "completed" ? chalk.green("✓")
+        : step.status === "failed" ? chalk.red("✗")
+        : step.status === "skipped" ? chalk.gray("○")
+        : chalk.yellow("◐");
+      
+      const stepDuration = step.duration ? chalk.gray(` ${formatDuration(step.duration)}`) : "";
+      console.log(`${indent}   ${stepIcon} ${step.action}${stepDuration}`);
+      
+      if (step.error && verbose) {
+        console.log(`${indent}      ${chalk.red(step.error)}`);
+      }
+    }
+  }
+  
+  // Print children
+  if (children.length > 0) {
+    console.log(`${indent}   ${chalk.gray("Sub-workflows:")}`);
+    for (const child of children) {
+      printExecutionTree(child, depth + 1, verbose);
+    }
+  }
+  
+  if (depth === 0) console.log();
 }

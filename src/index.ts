@@ -26,6 +26,10 @@ export { TemplateEngine } from "./workflows/template.js";
 export { WorkflowRegistry } from "./workflows/registry.js";
 export { WorkflowInstaller } from "./workflows/installer.js";
 
+// UI
+export { UIServer } from "./ui/server.js";
+export type { UIServerOptions } from "./ui/server.js";
+
 // AI
 export { createAIProvider, loadAIConfig, ClaudeProvider } from "./ai/index.js";
 export type { AIProviderType, AIConfig } from "./ai/index.js";
