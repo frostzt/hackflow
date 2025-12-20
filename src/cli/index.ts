@@ -8,7 +8,7 @@ import { SecurityGuard } from "../security/index.js";
 import { createMCPClient } from "../mcps/index.js";
 import { CLIPromptHandler } from "../core/prompt.js";
 import { createAIProvider, loadAIConfig } from "../ai/index.js";
-import type { WorkflowConfig } from "../types/index.js";
+import type { WorkflowConfig, IModelProvider } from "../types/index.js";
 import { existsSync } from "fs";
 import {
   getWorkflowNames,
@@ -27,6 +27,70 @@ if (process.argv.includes("--completion-list")) {
   console.log(names.join("\n"));
   process.exit(0);
 }
+
+// Check if we should enter REPL mode (no args or just a quoted string)
+const args = process.argv.slice(2);
+const shouldEnterREPL = args.length === 0;
+const isOneShotNL = args.length > 0 && !args[0].startsWith("-") && 
+                    !["run", "install", "uninstall", "update", "workflows", "search", 
+                      "list", "show", "cleanup", "init", "completion", "ui", "chat"].includes(args[0]) &&
+                    !args[0].startsWith("/");
+
+function showAIKeyError(): void {
+  console.error(chalk.red("\nError: AI provider required for natural language mode.\n"));
+  console.error(chalk.white("Set your API key using one of these methods:\n"));
+  console.error(chalk.cyan("  Option 1: Environment variable"));
+  console.error(chalk.gray("    export ANTHROPIC_API_KEY=your-key-here\n"));
+  console.error(chalk.cyan("  Option 2: Config file (~/.hackflow/config.json)"));
+  console.error(chalk.gray('    echo \'{"anthropic_api_key": "your-key-here"}\' > ~/.hackflow/config.json\n'));
+  console.error(chalk.gray("Get an API key at: https://console.anthropic.com/\n"));
+}
+
+if (shouldEnterREPL) {
+  // Enter REPL mode
+  (async () => {
+    try {
+      const agent = await createAgentWithAI();
+      if (!agent.aiProvider) {
+        showAIKeyError();
+        process.exit(1);
+      }
+      
+      const { HackflowREPL } = await import("../repl/index.js");
+      const repl = new HackflowREPL(agent.agent, agent.aiProvider);
+      await repl.start();
+      await agent.agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  })();
+} else if (isOneShotNL) {
+  // One-shot natural language mode: hackflow "commit my changes"
+  (async () => {
+    try {
+      const input = args.join(" ");
+      const agent = await createAgentWithAI();
+      
+      if (!agent.aiProvider) {
+        showAIKeyError();
+        process.exit(1);
+      }
+      
+      const { runOneShot } = await import("../repl/index.js");
+      await runOneShot(agent.agent, agent.aiProvider, input);
+      await agent.agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  })();
+} else {
+  // Normal commander parsing
+  runCommander();
+}
+
+function runCommander() {
 
 program
   .name("hackflow")
@@ -633,6 +697,30 @@ program
     }
   });
 
+// Chat command - explicit way to enter REPL
+program
+  .command("chat")
+  .alias("c")
+  .description("Start interactive natural language mode")
+  .action(async () => {
+    try {
+      const result = await createAgentWithAI();
+      if (!result.aiProvider) {
+        console.error(chalk.red("Error: AI provider required for chat mode."));
+        console.error(chalk.gray("Set ANTHROPIC_API_KEY environment variable."));
+        process.exit(1);
+      }
+      
+      const { HackflowREPL } = await import("../repl/index.js");
+      const repl = new HackflowREPL(result.agent, result.aiProvider);
+      await repl.start();
+      await result.agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
 // Completion command
 program
   .command("completion [shell]")
@@ -670,7 +758,44 @@ program
 // Parse arguments
 program.parse();
 
+} // End of runCommander()
+
 // Helper functions
+
+interface AgentWithAI {
+  agent: HackflowAgent;
+  aiProvider: IModelProvider | undefined;
+}
+
+async function createAgentWithAI(mcpType: "mock" | "real" = "real"): Promise<AgentWithAI> {
+  const storage = createStorage({ type: "sqlite" });
+
+  // Try to load AI provider
+  let aiProvider: IModelProvider | undefined;
+  try {
+    const aiConfig = loadAIConfig();
+    if (aiConfig) {
+      aiProvider = createAIProvider(aiConfig);
+    }
+  } catch (error) {
+    // AI provider not available
+  }
+
+  const promptHandler = new CLIPromptHandler(aiProvider);
+  const security = new SecurityGuard({}, promptHandler);
+  const mcpClient = createMCPClient({ type: mcpType });
+
+  const agent = new HackflowAgent(
+    storage,
+    security,
+    mcpClient,
+    promptHandler,
+    aiProvider,
+  );
+  await agent.initialize();
+
+  return { agent, aiProvider };
+}
 
 async function createAgent(mcpType: "mock" | "real" = "real"): Promise<HackflowAgent> {
   const storage = createStorage({ type: "sqlite" });
