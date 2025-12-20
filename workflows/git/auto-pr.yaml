@@ -37,21 +37,30 @@ steps:
       command: "git remote get-url origin"
     output: remote_url
 
-  # Step 3: Get all commits on this branch not in target
+  # Step 3: Detect the actual default branch (main, master, etc.)
+  # Use bash -c to ensure proper shell interpretation for pipes
+  # refs/remotes/origin/master -> master
+  - action: shell.execute_command
+    description: Get default branch from remote
+    params:
+      command: "bash -c \"git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||'\""
+    output: actual_target_branch
+
+  # Step 4: Get all commits on this branch not in target
   - action: shell.execute_command
     description: Get commit log
     params:
-      command: "git log --oneline {{target_branch}}..HEAD"
+      command: "git log --oneline origin/HEAD..HEAD"
     output: commit_log
 
-  # Step 4: Get full diff from target branch
+  # Step 5: Get full diff from target branch
   - action: shell.execute_command
     description: Get diff from target
     params:
-      command: "git diff {{target_branch}}...HEAD --stat"
+      command: "git diff origin/HEAD...HEAD --stat"
     output: diff_stat
 
-  # Step 5: AI generates PR title
+  # Step 6: AI generates PR title
   - action: ai.generate
     description: Generate PR title
     params:
@@ -59,7 +68,7 @@ steps:
         Create a pull request title for these changes:
         
         Branch: {{current_branch}}
-        Target: {{target_branch}}
+        Target: {{actual_target_branch}}
         
         Commits:
         {{commit_log}}
@@ -74,7 +83,7 @@ steps:
       max_tokens: 50
     output: pr_title
 
-  # Step 6: AI generates PR description
+  # Step 7: AI generates PR description
   - action: ai.generate
     description: Generate PR description
     params:
@@ -82,7 +91,7 @@ steps:
         Create a pull request description for these changes:
         
         Branch: {{current_branch}}
-        Target: {{target_branch}}
+        Target: {{actual_target_branch}}
         
         Commits:
         {{commit_log}}
@@ -102,7 +111,7 @@ steps:
       max_tokens: 500
     output: pr_description
 
-  # Step 7: Log generated details
+  # Step 8: Log generated details
   - action: log.info
     params:
       message: |
@@ -114,5 +123,5 @@ steps:
         Description:
         {{pr_description}}
         
-        Branch: {{current_branch}} → {{target_branch}}
+        Branch: {{current_branch}} → {{actual_target_branch}}
         Provider: {{provider}}
