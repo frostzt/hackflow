@@ -65,6 +65,40 @@ export class HackflowAgent {
   }
 
   /**
+   * Execute a workflow by name (searches registry)
+   * Falls back to file path if name not found in registry
+   */
+  async runWorkflowByName(
+    nameOrPath: string,
+    config: WorkflowConfig,
+  ): Promise<ExecutionResult> {
+    // First, try to find in registry
+    const workflow = await this.registry.get(nameOrPath);
+    
+    if (workflow) {
+      return this.runWorkflow(workflow, config);
+    }
+
+    // Fall back to file path
+    // Check if it looks like a file path
+    if (nameOrPath.includes("/") || nameOrPath.endsWith(".yaml") || nameOrPath.endsWith(".yml")) {
+      return this.runWorkflowFile(nameOrPath, config);
+    }
+
+    throw new Error(
+      `Workflow "${nameOrPath}" not found. ` +
+      `Use "hackflow install ${nameOrPath}" to install it, or provide a file path.`
+    );
+  }
+
+  /**
+   * Get the workflow registry
+   */
+  getRegistry(): WorkflowRegistry {
+    return this.registry;
+  }
+
+  /**
    * Execute a workflow definition
    */
   async runWorkflow(

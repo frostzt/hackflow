@@ -350,6 +350,98 @@ export interface WorkflowMetadata {
 }
 
 // ============================================================================
+// Workflow Installation System
+// ============================================================================
+
+/**
+ * Installed workflow manifest entry
+ * Stored in ~/.hackflow/workflows/installed.json
+ */
+export interface InstalledWorkflow {
+  /** Full qualified name: namespace/category/name or @user/repo/name */
+  fqn: string;
+  
+  /** Short name for quick lookup (e.g., "auto-ship") */
+  shortName: string;
+  
+  /** Namespace: "hackflow", "@username", or "local" */
+  namespace: string;
+  
+  /** Category within namespace (e.g., "github", "git", "shipping") */
+  category?: string;
+  
+  /** Version tag (e.g., "v1.0.0", "latest") */
+  version: string;
+  
+  /** Source URL or path */
+  source: string;
+  
+  /** Local file path where workflow is stored */
+  localPath: string;
+  
+  /** Workflow dependencies (other workflow FQNs) */
+  dependencies: string[];
+  
+  /** Installation timestamp */
+  installedAt: Date;
+  
+  /** Last update timestamp */
+  updatedAt: Date;
+  
+  /** Git commit hash for version tracking */
+  commitHash?: string;
+}
+
+/**
+ * Installation manifest stored at ~/.hackflow/workflows/installed.json
+ */
+export interface InstallationManifest {
+  /** Schema version for migrations */
+  schemaVersion: number;
+  
+  /** Map of FQN -> InstalledWorkflow */
+  workflows: Record<string, InstalledWorkflow>;
+  
+  /** Last sync timestamp */
+  lastSync?: Date;
+}
+
+/**
+ * Workflow source types
+ */
+export type WorkflowSource = 
+  | { type: "hackflow"; category: string; name: string; version?: string }
+  | { type: "github"; owner: string; repo: string; path?: string; version?: string }
+  | { type: "local"; path: string }
+  | { type: "url"; url: string };
+
+/**
+ * Result of parsing a workflow identifier
+ */
+export interface ParsedWorkflowId {
+  /** Original input string */
+  raw: string;
+  
+  /** Namespace: "hackflow", "@owner", or "local" */
+  namespace: string;
+  
+  /** Category/path within namespace */
+  category?: string;
+  
+  /** Workflow name */
+  name: string;
+  
+  /** Version tag if specified */
+  version?: string;
+  
+  /** Full qualified name */
+  fqn: string;
+  
+  /** Resolved source */
+  source: WorkflowSource;
+}
+
+// ============================================================================
 // Model Interface (for AI interactions)
 // ============================================================================
 
