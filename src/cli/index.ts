@@ -9,6 +9,7 @@ import { createMCPClient } from "../mcps/index.js";
 import { CLIPromptHandler } from "../core/prompt.js";
 import { createAIProvider, loadAIConfig } from "../ai/index.js";
 import type { WorkflowConfig } from "../types/index.js";
+import { existsSync } from "fs";
 
 const program = new Command();
 
@@ -17,16 +18,16 @@ program
   .description("A hackable AI agent with workflow-based plugins")
   .version("0.1.0");
 
-// Run command
+// Run command - now supports both names and file paths
 program
   .command("run <workflow>")
-  .description("Execute a workflow")
+  .description("Execute a workflow by name or file path")
   .option("-c, --config <file>", "Config file with workflow values")
   .option("-d, --dry-run", "Simulate execution without making changes")
   .option("-v, --verbose", "Verbose output")
   .option("--mock-mcp", "Use mock MCP servers (for development/testing)")
   .option("--var <key=value>", "Set workflow variables", collect, [])
-  .action(async (workflowPath: string, options: any) => {
+  .action(async (workflow: string, options: any) => {
     try {
       // Use real MCP by default, mock only if --mock-mcp flag is set
       const mcpType = options.mockMcp ? "mock" : "real";
@@ -48,13 +49,25 @@ program
         },
       };
 
-      console.log(chalk.blue(`🚀 Running workflow: ${workflowPath}`));
+      // Determine if it's a file path or workflow name
+      const isFilePath = workflow.includes("/") || 
+                         workflow.endsWith(".yaml") || 
+                         workflow.endsWith(".yml") ||
+                         existsSync(workflow);
+
+      if (isFilePath) {
+        console.log(chalk.blue(`🚀 Running workflow file: ${workflow}`));
+      } else {
+        console.log(chalk.blue(`🚀 Running workflow: ${workflow}`));
+      }
+      
       if (options.dryRun) {
         console.log(chalk.yellow("⚠️  DRY RUN MODE - No changes will be made"));
       }
       console.log();
 
-      const result = await agent.runWorkflowFile(workflowPath, config);
+      // Use smart resolution - tries registry first, then file path
+      const result = await agent.runWorkflowByName(workflow, config);
 
       console.log();
       if (result.status === "completed") {
@@ -67,6 +80,189 @@ program
         console.log(chalk.gray(`  Execution ID: ${result.executionId}`));
         console.log(chalk.red(`  Error: ${result.error}`));
         process.exit(1);
+      }
+
+      await agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+// Install command
+program
+  .command("install <workflow>")
+  .alias("i")
+  .description("Install a workflow from hackflow-curated or GitHub")
+  .option("-f, --force", "Force reinstall if already installed")
+  .action(async (workflow: string, options: any) => {
+    try {
+      const agent = await createAgent();
+      const registry = agent.getRegistry();
+      
+      console.log(chalk.blue(`📦 Installing workflow: ${workflow}`));
+      console.log();
+
+      const fqn = await registry.install(workflow);
+      
+      console.log();
+      console.log(chalk.green(`✓ Installed ${fqn}`));
+      console.log(chalk.gray(`  Run with: hackflow run ${workflow.split("/").pop()}`));
+
+      await agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+// Update command
+program
+  .command("update [workflow]")
+  .description("Update installed workflows (all if no name given)")
+  .action(async (workflow?: string) => {
+    try {
+      const agent = await createAgent();
+      const registry = agent.getRegistry();
+
+      if (workflow) {
+        console.log(chalk.blue(`🔄 Updating workflow: ${workflow}`));
+      } else {
+        console.log(chalk.blue("🔄 Updating all workflows..."));
+      }
+      console.log();
+
+      await registry.update(workflow);
+      
+      console.log();
+      console.log(chalk.green("✓ Update complete"));
+
+      await agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+// Uninstall command
+program
+  .command("uninstall <workflow>")
+  .alias("remove")
+  .description("Remove an installed workflow")
+  .action(async (workflow: string) => {
+    try {
+      const agent = await createAgent();
+      const registry = agent.getRegistry();
+
+      console.log(chalk.blue(`🗑️  Removing workflow: ${workflow}`));
+
+      await registry.remove(workflow);
+      
+      console.log(chalk.green(`✓ Removed ${workflow}`));
+
+      await agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+// List workflows command
+program
+  .command("workflows")
+  .alias("ls")
+  .description("List available workflows")
+  .option("-i, --installed", "Show only installed workflows")
+  .action(async (options: any) => {
+    try {
+      const agent = await createAgent();
+      const registry = agent.getRegistry();
+
+      const workflows = await registry.list();
+
+      if (workflows.length === 0) {
+        console.log(chalk.gray("No workflows found"));
+        console.log(chalk.gray("Install workflows with: hackflow install <workflow>"));
+        await agent.shutdown();
+        return;
+      }
+
+      console.log(chalk.bold("\nAvailable Workflows:\n"));
+
+      // Group by namespace/source
+      const grouped: Record<string, typeof workflows> = {};
+      for (const w of workflows) {
+        let group = "Built-in";
+        if (w.source) {
+          // Check for FQN-based sources (from installed.json)
+          if (w.source.startsWith("@")) {
+            group = "User";
+          } else if (w.source.startsWith("hackflow/")) {
+            group = "Hackflow (installed)";
+          } else if (w.source.startsWith("local/")) {
+            group = "Local";
+          }
+          // Check for file path-based sources
+          else if (w.source.includes("/.hackflow/workflows/")) {
+            if (w.source.includes("/hackflow/")) {
+              group = "Hackflow (installed)";
+            } else if (w.source.includes("/local/")) {
+              group = "Local";
+            } else if (w.source.includes("/@")) {
+              group = "User";
+            }
+          } else if (w.source.includes("/workflows/")) {
+            group = "Built-in";
+          }
+        }
+        if (!grouped[group]) grouped[group] = [];
+        grouped[group].push(w);
+      }
+
+      for (const [group, items] of Object.entries(grouped)) {
+        console.log(chalk.cyan(`${group}:`));
+        for (const w of items) {
+          const version = w.version ? chalk.gray(`@${w.version}`) : "";
+          const desc = w.description ? chalk.gray(` - ${w.description}`) : "";
+          console.log(`  ${chalk.white(w.name)}${version}${desc}`);
+        }
+        console.log();
+      }
+
+      await agent.shutdown();
+    } catch (error) {
+      console.error(chalk.red("Error:"), (error as Error).message);
+      process.exit(1);
+    }
+  });
+
+// Search command
+program
+  .command("search <query>")
+  .description("Search for workflows")
+  .action(async (query: string) => {
+    try {
+      const agent = await createAgent();
+      const registry = agent.getRegistry();
+
+      console.log(chalk.blue(`🔍 Searching for: ${query}`));
+      console.log();
+
+      const results = await registry.search(query);
+
+      if (results.length === 0) {
+        console.log(chalk.gray("No workflows found matching your query"));
+        await agent.shutdown();
+        return;
+      }
+
+      console.log(chalk.bold(`Found ${results.length} workflow(s):\n`));
+
+      for (const w of results) {
+        const version = w.version ? chalk.gray(`@${w.version}`) : "";
+        const desc = w.description ? chalk.gray(` - ${w.description}`) : "";
+        const installed = w.installedAt ? chalk.green(" [installed]") : "";
+        console.log(`  ${chalk.white(w.name)}${version}${installed}${desc}`);
       }
 
       await agent.shutdown();
@@ -211,6 +407,11 @@ program
       await agent.initialize();
       console.log(chalk.green("✓ Hackflow initialized successfully"));
       console.log(chalk.gray("  Config directory: ~/.hackflow"));
+      console.log(chalk.gray("  Workflows directory: ~/.hackflow/workflows"));
+      console.log();
+      console.log(chalk.gray("Next steps:"));
+      console.log(chalk.gray("  1. Install workflows: hackflow install shipping/auto-ship"));
+      console.log(chalk.gray("  2. Run workflows: hackflow run auto-ship"));
       await agent.shutdown();
     } catch (error) {
       console.error(chalk.red("Error:"), (error as Error).message);

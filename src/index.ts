@@ -23,6 +23,8 @@ export { MCPClient } from "./mcps/client.js";
 // Workflows
 export { WorkflowLoader } from "./workflows/loader.js";
 export { TemplateEngine } from "./workflows/template.js";
+export { WorkflowRegistry } from "./workflows/registry.js";
+export { WorkflowInstaller } from "./workflows/installer.js";
 
 // AI
 export { createAIProvider, loadAIConfig, ClaudeProvider } from "./ai/index.js";
@@ -67,6 +69,12 @@ export type {
   // Registry
   IWorkflowRegistry,
   WorkflowMetadata,
+  
+  // Installation
+  InstalledWorkflow,
+  InstallationManifest,
+  ParsedWorkflowId,
+  WorkflowSource,
 
   // Model
   IModelProvider,
