@@ -218,8 +218,8 @@ Create a workflow to accomplish this task:
 ${toolsContext}
 
 ## Built-in Actions (always available)
-- prompt.ask: Ask user for input. Params: { message: "question" }. Use for branch names, custom inputs.
-- ai.generate: Generate text with AI. Params: { prompt: "...", temperature: 0.3 }. Use for commit messages, summaries.
+- prompt.ask: Ask user for input. Params: { message: "question", default: "{{suggested}}" }
+- ai.generate: Generate text with AI. Params: { prompt: "...", temperature: 0.3 }
 - log.info: Show message to user. Params: { message: "..." }
 
 ## Git MCP Tools (IMPORTANT: always include repo_path: ".")
@@ -228,8 +228,14 @@ ${toolsContext}
 - git.git_add: Stage files. Params: { repo_path: ".", files: ["."] }
 - git.git_commit: Commit. Params: { repo_path: ".", message: "..." }
 
+## GitHub MCP Tools (use these instead of gh CLI!)
+- github.create_pull_request: Create PR. Params: { owner: "...", repo: "...", head: "branch", base: "main", title: "...", body: "..." }
+- github.list_pull_requests: List PRs. Params: { owner: "...", repo: "...", state: "open" }
+- github.get_pull_request: Get PR details. Params: { owner: "...", repo: "...", pull_number: 123 }
+
 ## Shell MCP Tools
 - shell.execute_command: Run shell command. Params: { command: "..." }
+- IMPORTANT: Do NOT use "gh" CLI commands - use github.* MCP tools instead!
 
 ## Environment
 Working Directory: ${environment.cwd}
@@ -555,6 +561,12 @@ Step 6 - Commit:
 WRONG patterns to avoid:
 - { "action": "git.git_status", "params": {} }  // Missing repo_path
 - { "params": { "prompt": "Generate branch name for {{diff}}" } }  // Missing "Output ONLY..." instruction
+- { "action": "shell.execute_command", "params": { "command": "gh pr create ..." } }  // WRONG! Use github.create_pull_request instead
+
+For GitHub operations, ALWAYS use github.* MCP tools, not gh CLI:
+- github.create_pull_request for creating PRs
+- github.list_pull_requests for listing PRs
+- github.get_pull_request for getting PR details
 
 ### 6. When to Ask vs Generate
 - GENERATE with AI first: branch names, commit messages, summaries from code changes
