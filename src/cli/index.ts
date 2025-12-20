@@ -10,8 +10,22 @@ import { CLIPromptHandler } from "../core/prompt.js";
 import { createAIProvider, loadAIConfig } from "../ai/index.js";
 import type { WorkflowConfig } from "../types/index.js";
 import { existsSync } from "fs";
+import {
+  getWorkflowNames,
+  generateBashCompletion,
+  generateZshCompletion,
+  generateFishCompletion,
+  getInstallInstructions,
+} from "./completion.js";
 
 const program = new Command();
+
+// Handle --completion-list before anything else (for shell completion)
+if (process.argv.includes("--completion-list")) {
+  const names = getWorkflowNames();
+  console.log(names.join("\n"));
+  process.exit(0);
+}
 
 program
   .name("hackflow")
@@ -173,6 +187,7 @@ program
   .alias("ls")
   .description("List available workflows")
   .option("-i, --installed", "Show only installed workflows")
+  .option("-a, --all", "Show all details including source")
   .action(async (options: any) => {
     try {
       const agent = await createAgent();
@@ -189,42 +204,79 @@ program
 
       console.log(chalk.bold("\nAvailable Workflows:\n"));
 
-      // Group by namespace/source
+      // Group by category (extracted from source path or workflow name prefix)
       const grouped: Record<string, typeof workflows> = {};
+      
       for (const w of workflows) {
-        let group = "Built-in";
+        let category = "Other";
+        
+        // Try to extract category from source path
         if (w.source) {
-          // Check for FQN-based sources (from installed.json)
-          if (w.source.startsWith("@")) {
-            group = "User";
-          } else if (w.source.startsWith("hackflow/")) {
-            group = "Hackflow (installed)";
-          } else if (w.source.startsWith("local/")) {
-            group = "Local";
+          // Match patterns like /workflows/git/, /workflows/github/, /workflows/shipping/
+          // The category is the folder right after "workflows/"
+          const pathMatch = w.source.match(/[\/\\]workflows[\/\\](\w+)[\/\\]/);
+          if (pathMatch) {
+            category = pathMatch[1];
           }
-          // Check for file path-based sources
-          else if (w.source.includes("/.hackflow/workflows/")) {
-            if (w.source.includes("/hackflow/")) {
-              group = "Hackflow (installed)";
-            } else if (w.source.includes("/local/")) {
-              group = "Local";
-            } else if (w.source.includes("/@")) {
-              group = "User";
+          // For FQN sources like "hackflow/github/create-pr" or "local/my-workflow"
+          else if (!w.source.startsWith("/") && w.source.includes("/")) {
+            const parts = w.source.split("/");
+            if (parts.length >= 2) {
+              // Skip namespace prefix if present
+              category = parts[0] === "local" || parts[0] === "hackflow" || parts[0].startsWith("@") 
+                ? (parts[1] || "other")
+                : parts[0];
             }
-          } else if (w.source.includes("/workflows/")) {
-            group = "Built-in";
           }
         }
-        if (!grouped[group]) grouped[group] = [];
-        grouped[group].push(w);
+        
+        // Also try to extract from workflow name prefix (e.g., "git-smart-commit" -> "git")
+        if (category === "Other" && w.name.includes("-")) {
+          const prefix = w.name.split("-")[0];
+          if (["git", "github", "gitlab", "docker", "npm", "code", "validate"].includes(prefix)) {
+            category = prefix;
+          }
+        }
+
+        // Capitalize category name
+        category = category.charAt(0).toUpperCase() + category.slice(1);
+        
+        if (!grouped[category]) grouped[category] = [];
+        grouped[category].push(w);
       }
 
-      for (const [group, items] of Object.entries(grouped)) {
-        console.log(chalk.cyan(`${group}:`));
+      // Sort categories alphabetically, but put "Other" last
+      const sortedCategories = Object.keys(grouped).sort((a, b) => {
+        if (a === "Other") return 1;
+        if (b === "Other") return -1;
+        return a.localeCompare(b);
+      });
+
+      for (const category of sortedCategories) {
+        const items = grouped[category];
+        // Sort workflows within category
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        
+        console.log(chalk.cyan.bold(`${category}:`));
         for (const w of items) {
-          const version = w.version ? chalk.gray(`@${w.version}`) : "";
+          const version = w.version ? chalk.gray(` @${w.version}`) : "";
+          const installed = w.installedAt ? chalk.green(" ✓") : "";
           const desc = w.description ? chalk.gray(` - ${w.description}`) : "";
-          console.log(`  ${chalk.white(w.name)}${version}${desc}`);
+          
+          if (options.all) {
+            console.log(`  ${chalk.white(w.name)}${version}${installed}`);
+            if (w.description) console.log(chalk.gray(`    ${w.description}`));
+            if (w.source) console.log(chalk.gray(`    Source: ${w.source}`));
+          } else {
+            // Truncate description if too long
+            const maxDescLen = 50;
+            let shortDesc = w.description || "";
+            if (shortDesc.length > maxDescLen) {
+              shortDesc = shortDesc.slice(0, maxDescLen) + "...";
+            }
+            const descDisplay = shortDesc ? chalk.gray(` - ${shortDesc}`) : "";
+            console.log(`  ${chalk.white(w.name)}${version}${installed}${descDisplay}`);
+          }
         }
         console.log();
       }
@@ -412,10 +464,45 @@ program
       console.log(chalk.gray("Next steps:"));
       console.log(chalk.gray("  1. Install workflows: hackflow install shipping/auto-ship"));
       console.log(chalk.gray("  2. Run workflows: hackflow run auto-ship"));
+      console.log(chalk.gray("  3. Enable tab completion: hackflow completion"));
       await agent.shutdown();
     } catch (error) {
       console.error(chalk.red("Error:"), (error as Error).message);
       process.exit(1);
+    }
+  });
+
+// Completion command
+program
+  .command("completion [shell]")
+  .description("Generate shell completion scripts (bash, zsh, fish)")
+  .action((shell?: string) => {
+    if (!shell) {
+      // Show instructions for all shells
+      console.log(chalk.bold("\nShell Completion Setup\n"));
+      console.log(getInstallInstructions(""));
+      return;
+    }
+
+    switch (shell.toLowerCase()) {
+      case "bash":
+        console.log(generateBashCompletion());
+        break;
+      case "zsh":
+        console.log(generateZshCompletion());
+        break;
+      case "fish":
+        console.log(generateFishCompletion());
+        break;
+      case "install":
+        // Show installation instructions
+        console.log(chalk.bold("\nShell Completion Installation\n"));
+        console.log(getInstallInstructions(""));
+        break;
+      default:
+        console.error(chalk.red(`Unknown shell: ${shell}`));
+        console.log(chalk.gray("Supported shells: bash, zsh, fish"));
+        process.exit(1);
     }
   });
 
