@@ -159,9 +159,28 @@ steps:
     if: '{{should_create_branch}} == true'
 
   # ============================================================================
-  # PHASE 3: COMMIT IN LOGICAL CHUNKS
+  # PHASE 3: COMMIT IN LOGICAL CHUNKS (skip if no changes)
   # ============================================================================
   
+  # Check if there are any changes to commit
+  - action: shell.execute_command
+    description: Check for uncommitted changes
+    params:
+      command: "git status --porcelain"
+    output: uncommitted_changes
+
+  # Determine if we have changes
+  - action: variable.set
+    params:
+      name: has_changes
+      value: false
+
+  - action: variable.set
+    params:
+      name: has_changes
+      value: true
+    if: '{{uncommitted_changes}} != ""'
+
   - action: log.info
     params:
       message: |
@@ -171,10 +190,19 @@ steps:
         ╚═══════════════════════════════════════════════════════════╝
         
         Creating commits for each logical group of changes...
+    if: '{{has_changes}} == true'
 
-  # Note: This is a simplified version. In production, you'd loop through commit_groups
-  # For now, we'll create one comprehensive commit
-  
+  - action: log.info
+    params:
+      message: |
+        
+        ╔═══════════════════════════════════════════════════════════╗
+        ║              📦 NO CHANGES TO COMMIT                      ║
+        ╚═══════════════════════════════════════════════════════════╝
+        
+        No uncommitted changes found. Skipping commit step.
+    if: '{{has_changes}} == false'
+
   - action: workflow.run
     description: Create smart commit
     params:
@@ -183,6 +211,7 @@ steps:
         files: "."
         commit_description: "{{change_summary}}"
     output: commit_result
+    if: '{{has_changes}} == true'
 
   # ============================================================================
   # PHASE 4: PUSH TO REMOTE
@@ -235,6 +264,7 @@ steps:
     output: final_branch
 
   # Create GitHub PR using workflow
+  # Use the detected default branch (pr_prep.actual_target_branch) instead of hardcoded target_branch
   - action: workflow.run
     description: Create GitHub Pull Request
     params:
@@ -243,7 +273,7 @@ steps:
         owner: "{{github_owner}}"
         repo: "{{github_repo}}"
         head: "{{final_branch}}"
-        base: "{{target_branch}}"
+        base: "{{pr_prep.actual_target_branch}}"
         title: "{{pr_prep.pr_title}}"
         body: "{{pr_prep.pr_description}}"
         draft: false
@@ -251,6 +281,7 @@ steps:
     if: '{{provider}} == "github"'
 
   # Create GitLab MR using workflow
+  # Use the detected default branch (pr_prep.actual_target_branch) instead of hardcoded target_branch
   - action: workflow.run
     description: Create GitLab Merge Request
     params:
@@ -258,7 +289,7 @@ steps:
       vars:
         project_id: "{{gitlab_project_id}}"
         source_branch: "{{final_branch}}"
-        target_branch: "{{target_branch}}"
+        target_branch: "{{pr_prep.actual_target_branch}}"
         title: "{{pr_prep.pr_title}}"
         description: "{{pr_prep.pr_description}}"
         remove_source_branch: true
