@@ -30,6 +30,19 @@ export { WorkflowInstaller } from "./workflows/installer.js";
 export { UIServer } from "./ui/server.js";
 export type { UIServerOptions } from "./ui/server.js";
 
+// Natural Language Agent
+export { NLAgent, IntentParser, Planner, ContextManager } from "./agent/index.js";
+export type { 
+  NLAgentCallbacks,
+  ParsedIntent,
+  ExecutionPlan,
+  AgentConfig,
+  ConversationContext,
+} from "./agent/index.js";
+
+// REPL
+export { HackflowREPL, runOneShot } from "./repl/index.js";
+
 // AI
 export { createAIProvider, loadAIConfig, ClaudeProvider } from "./ai/index.js";
 export type { AIProviderType, AIConfig } from "./ai/index.js";

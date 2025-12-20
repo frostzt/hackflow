@@ -94,17 +94,7 @@ steps:
       maintainer_can_modify: true
     output: pr_result
 
-  # Step 3: Get the full PR details
-  - action: github.pull_request_read
-    description: Get full PR details including status
-    params:
-      owner: "{{owner}}"
-      repo: "{{repo}}"
-      pullNumber: "{{pr_result.id}}"
-      method: "get"
-    output: pr_details
-
-  # Step 4: Display comprehensive results
+  # Step 3: Display comprehensive results
   - action: log.info
     params:
       message: |
@@ -115,7 +105,6 @@ steps:
         
         📋 DETAILS:
            Title:      {{title}}
-           PR URL:     {{pr_result.url}}
            Draft:      {{draft}}
         
         🔀 BRANCHES:
@@ -126,10 +115,8 @@ steps:
         📝 DESCRIPTION:
         {{body}}
         
-        🔗 LINKS:
-           View PR:    {{pr_result.url}}
-           Files:      {{pr_result.url}}/files
-           Checks:     {{pr_result.url}}/checks
+        📦 RESULT:
+        {{pr_result}}
         
         ═══════════════════════════════════════════════════════════
         

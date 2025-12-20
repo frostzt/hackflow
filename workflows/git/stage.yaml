@@ -1,0 +1,41 @@
+# Git Stage Workflow
+# Stages files without committing
+name: git-stage
+description: Stage files for commit (git add)
+version: 1.0.0
+author: hackflow
+
+mcps_required:
+  - git
+
+config_schema:
+  repo_path:
+    type: string
+    description: Path to git repository
+    required: false
+    default: "."
+  files:
+    type: string
+    description: Files to stage (default all)
+    required: false
+    default: "."
+
+steps:
+  # Step 1: Show current status
+  - action: git.git_status
+    description: Check current git status
+    params:
+      repo_path: "{{repo_path}}"
+    output: status
+
+  # Step 2: Stage files
+  - action: git.git_add
+    description: Stage files
+    params:
+      repo_path: "{{repo_path}}"
+      files: ["{{files}}"]
+    output: add_result
+
+  - action: log.info
+    params:
+      message: "✓ Files staged successfully. Use 'git commit' to commit them."

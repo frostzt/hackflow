@@ -532,14 +532,20 @@ export class WorkflowExecutor implements IWorkflowExecutor {
     }
 
     switch (action) {
-      case "ask":
-        return (
-          await this.promptHandler.ask({
-            message: params.message,
-            type: "text",
-            dynamic: params.dynamic ?? false,
-          })
-        ).value;
+      case "ask": {
+        const response = await this.promptHandler.ask({
+          message: params.message,
+          type: "text",
+          default: params.default,
+          dynamic: params.dynamic ?? false,
+        });
+        // If user entered nothing and we have a default, use the default
+        const value = response.value;
+        if ((value === "" || value === undefined || value === null) && params.default !== undefined) {
+          return params.default;
+        }
+        return value;
+      }
 
       case "confirm":
         return this.promptHandler.confirm(params.message, params.default);
@@ -571,18 +577,59 @@ export class WorkflowExecutor implements IWorkflowExecutor {
   }
 
   private executeLogAction(action: string, params: Record<string, any>): any {
+    // Format the message - if it contains JSON, try to make it readable
+    const formatMessage = (msg: string): string => {
+      if (!msg) return "";
+      
+      // Check if message looks like it contains JSON object/array
+      const trimmed = msg.trim();
+      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+          (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          // Extract just the useful content
+          if (parsed.result) {
+            return typeof parsed.result === "string" 
+              ? parsed.result 
+              : JSON.stringify(parsed.result, null, 2);
+          }
+          return JSON.stringify(parsed, null, 2);
+        } catch {
+          // Not valid JSON, return as-is
+        }
+      }
+      
+      // Check if message contains embedded JSON (like "Status: {...}")
+      const jsonMatch = msg.match(/^([^{]*?)(\{[\s\S]*\})$/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[2]);
+          const prefix = jsonMatch[1].trim();
+          const content = parsed.result || parsed;
+          const formatted = typeof content === "string" 
+            ? content 
+            : JSON.stringify(content, null, 2);
+          return prefix ? `${prefix}\n${formatted}` : formatted;
+        } catch {
+          // Not valid JSON
+        }
+      }
+      
+      return msg;
+    };
+    
     switch (action) {
       case "info":
-        console.log(`[INFO] ${params.message}`);
+        console.log(`[INFO] ${formatMessage(params.message)}`);
         return null;
 
       case "error":
-        console.error(`[ERROR] ${params.message}`);
+        console.error(`[ERROR] ${formatMessage(params.message)}`);
         return null;
 
       case "debug":
         if (params.verbose) {
-          console.log(`[DEBUG] ${params.message}`);
+          console.log(`[DEBUG] ${formatMessage(params.message)}`);
         }
         return null;
 
