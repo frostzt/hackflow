@@ -25,6 +25,9 @@ export interface IStorageAdapter {
 
   /** Save step result */
   saveStepResult(executionId: string, step: StepResult): Promise<void>;
+  
+  /** Update an existing step result */
+  updateStepResult(executionId: string, stepIndex: number, updates: Partial<StepResult>): Promise<void>;
 
   /** Get all steps for an execution */
   getSteps(executionId: string): Promise<StepResult[]>;
@@ -40,6 +43,19 @@ export interface IStorageAdapter {
 
   /** Clean up old executions */
   cleanup(olderThan: Date): Promise<number>;
+  
+  /** Get child executions of a parent */
+  getChildExecutions(parentExecutionId: string): Promise<WorkflowExecution[]>;
+  
+  /** Get the full execution tree (parent + all descendants) */
+  getExecutionTree(executionId: string): Promise<ExecutionTree>;
+}
+
+/** Represents a full execution tree with nested children */
+export interface ExecutionTree {
+  execution: WorkflowExecution;
+  steps: StepResult[];
+  children: ExecutionTree[];
 }
 
 export interface WorkflowExecution {
@@ -49,19 +65,65 @@ export interface WorkflowExecution {
   startedAt: Date;
   completedAt?: Date;
   currentStep?: number;
+  totalSteps?: number;
   error?: string;
+  errorStack?: string;
   metadata: Record<string, any>;
+  
+  /** Parent execution ID for child workflows */
+  parentExecutionId?: string;
+  
+  /** Step index in parent where this workflow was called */
+  parentStepIndex?: number;
+  
+  /** Duration in milliseconds */
+  duration?: number;
+  
+  /** Child execution IDs */
+  childExecutionIds?: string[];
+  
+  /** Depth in execution tree (0 = root) */
+  depth?: number;
+  
+  /** Trigger info - how this execution was started */
+  trigger?: {
+    type: "cli" | "workflow" | "api" | "schedule";
+    source?: string;
+  };
 }
 
 export interface StepResult {
   stepIndex: number;
   stepName: string;
   action: string;
+  description?: string;
   status: "pending" | "running" | "completed" | "failed" | "skipped";
   startedAt: Date;
   completedAt?: Date;
+  
+  /** Duration in milliseconds */
+  duration?: number;
+  
+  /** Input parameters (after template interpolation) */
+  input?: Record<string, any>;
+  
+  /** Output/result */
   output?: any;
+  
+  /** Error message */
   error?: string;
+  
+  /** Full error stack trace */
+  errorStack?: string;
+  
+  /** For workflow.run actions - the child execution ID */
+  childExecutionId?: string;
+  
+  /** Retry attempt number (0 = first attempt) */
+  retryAttempt?: number;
+  
+  /** Whether this step was skipped due to condition */
+  skipReason?: string;
 }
 
 export interface ExecutionFilters {
@@ -70,6 +132,12 @@ export interface ExecutionFilters {
   startedAfter?: Date;
   startedBefore?: Date;
   limit?: number;
+  
+  /** If true, only return root executions (no children) */
+  rootOnly?: boolean;
+  
+  /** Filter by parent execution ID */
+  parentExecutionId?: string;
 }
 
 // ============================================================================
@@ -274,6 +342,21 @@ export interface ExecutionContext {
 
   /** Workflow call stack (for circular dependency detection) */
   callStack?: string[];
+  
+  /** Parent execution ID (for child workflows) */
+  parentExecutionId?: string;
+  
+  /** Step index in parent where this workflow was called */
+  parentStepIndex?: number;
+  
+  /** Depth in execution tree (0 = root) */
+  depth?: number;
+  
+  /** Trigger info */
+  trigger?: {
+    type: "cli" | "workflow" | "api" | "schedule";
+    source?: string;
+  };
 }
 
 export interface ExecutionResult {

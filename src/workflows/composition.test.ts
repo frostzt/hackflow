@@ -30,7 +30,22 @@ class MockStorage implements IStorageAdapter {
     if (!this.steps.has(executionId)) {
       this.steps.set(executionId, []);
     }
-    this.steps.get(executionId).push(step);
+    // Replace if exists, otherwise add
+    const steps = this.steps.get(executionId);
+    const existingIndex = steps.findIndex((s: any) => s.stepIndex === step.stepIndex);
+    if (existingIndex >= 0) {
+      steps[existingIndex] = step;
+    } else {
+      steps.push(step);
+    }
+  }
+
+  async updateStepResult(executionId: string, stepIndex: number, updates: any) {
+    const steps = this.steps.get(executionId) || [];
+    const step = steps.find((s: any) => s.stepIndex === stepIndex);
+    if (step) {
+      Object.assign(step, updates);
+    }
   }
   
   async getSteps(executionId: string) {
@@ -51,6 +66,31 @@ class MockStorage implements IStorageAdapter {
   
   async cleanup() {
     return 0;
+  }
+
+  async getChildExecutions(parentExecutionId: string) {
+    const children: any[] = [];
+    for (const exec of this.executions.values()) {
+      if ((exec as any).parentExecutionId === parentExecutionId) {
+        children.push(exec);
+      }
+    }
+    return children;
+  }
+
+  async getExecutionTree(executionId: string): Promise<any> {
+    const execution = await this.getExecution(executionId);
+    if (!execution) {
+      throw new Error(`Execution not found: ${executionId}`);
+    }
+    const steps = await this.getSteps(executionId);
+    const childExecutions = await this.getChildExecutions(executionId);
+    const children: any[] = [];
+    for (const child of childExecutions) {
+      const childTree = await this.getExecutionTree(child.id);
+      children.push(childTree);
+    }
+    return { execution, steps, children };
   }
 }
 

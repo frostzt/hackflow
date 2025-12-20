@@ -9,7 +9,7 @@ import type {
   WorkflowConfig,
   ExecutionResult,
 } from "../types/index.js";
-import { WorkflowExecutor } from "./executor.js";
+import { WorkflowExecutor, type ProgressHandler } from "./executor.js";
 import { WorkflowLoader } from "../workflows/loader.js";
 import { WorkflowRegistry } from "../workflows/registry.js";
 import { fileURLToPath } from "url";
@@ -19,7 +19,7 @@ import { dirname, join } from "path";
  * Main Agent class - the entry point for workflow execution
  */
 export class HackflowAgent {
-  private executor: IWorkflowExecutor;
+  private executor: WorkflowExecutor;
   private registry: WorkflowRegistry;
 
   constructor(
@@ -44,6 +44,20 @@ export class HackflowAgent {
       this.registry, // Pass registry to executor for workflow composition
       _aiProvider,
     );
+  }
+
+  /**
+   * Register a progress handler to receive real-time execution updates
+   */
+  onProgress(handler: ProgressHandler): void {
+    this.executor.onProgress(handler);
+  }
+
+  /**
+   * Remove a progress handler
+   */
+  offProgress(handler: ProgressHandler): void {
+    this.executor.offProgress(handler);
   }
 
   /**
@@ -96,6 +110,13 @@ export class HackflowAgent {
    */
   getRegistry(): WorkflowRegistry {
     return this.registry;
+  }
+
+  /**
+   * Get the storage adapter (for UI server, etc.)
+   */
+  getStorage(): IStorageAdapter {
+    return this.storage;
   }
 
   /**
@@ -152,12 +173,13 @@ export class HackflowAgent {
   }
 
   /**
-   * List recent workflow executions
+   * List recent workflow executions (root only by default)
    */
-  async listExecutions(workflowName?: string, limit: number = 10) {
+  async listExecutions(workflowName?: string, limit: number = 10, includeChildren: boolean = false) {
     return this.storage.queryExecutions({
       workflowName,
       limit,
+      rootOnly: !includeChildren,
     });
   }
 
@@ -178,6 +200,20 @@ export class HackflowAgent {
       steps,
       context,
     };
+  }
+
+  /**
+   * Get full execution tree (execution + all children recursively)
+   */
+  async getExecutionTree(executionId: string) {
+    return this.storage.getExecutionTree(executionId);
+  }
+
+  /**
+   * Get child executions of a parent
+   */
+  async getChildExecutions(parentExecutionId: string) {
+    return this.storage.getChildExecutions(parentExecutionId);
   }
 
   /**
