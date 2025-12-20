@@ -7,6 +7,7 @@ author: hackflow
 
 mcps_required:
   - shell
+  - github
 
 config_schema:
   provider:
@@ -125,3 +126,64 @@ steps:
         
         Branch: {{current_branch}} → {{actual_target_branch}}
         Provider: {{provider}}
+
+  # Step 9: Extract owner/repo from remote URL
+  # Format: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+  - action: ai.generate
+    description: Extract owner and repo from remote URL
+    params:
+      prompt: |
+        Extract the owner and repo from this git remote URL:
+        {{remote_url}}
+        
+        Output ONLY in this exact format, nothing else:
+        owner/repo
+        
+        Examples:
+        - git@github.com:frostzt/hackflow.git -> frostzt/hackflow
+        - https://github.com/frostzt/hackflow.git -> frostzt/hackflow
+        - https://github.com/frostzt/hackflow -> frostzt/hackflow
+      temperature: 0.1
+      max_tokens: 50
+    output: owner_repo
+
+  # Step 10: Parse owner from owner_repo
+  - action: shell.execute_command
+    description: Extract owner from owner/repo
+    params:
+      command: "echo '{{owner_repo}}' | cut -d'/' -f1 | tr -d '\\n '"
+    output: owner
+
+  # Step 11: Parse repo from owner_repo
+  - action: shell.execute_command
+    description: Extract repo from owner/repo
+    params:
+      command: "echo '{{owner_repo}}' | cut -d'/' -f2 | tr -d '\\n '"
+    output: repo
+
+  # Step 12: Create the PR on GitHub
+  - action: github.create_pull_request
+    description: Create pull request on GitHub
+    params:
+      owner: "{{owner}}"
+      repo: "{{repo}}"
+      head: "{{current_branch}}"
+      base: "{{actual_target_branch}}"
+      title: "{{pr_title}}"
+      body: "{{pr_description}}"
+      draft: false
+      maintainer_can_modify: true
+    output: pr_result
+
+  # Step 13: Show success message
+  - action: log.info
+    description: Show PR creation result
+    params:
+      message: |
+        
+        ✅ Pull Request Created!
+        
+        {{pr_result}}
+        
+        Branch: {{current_branch}} → {{actual_target_branch}}
+        Repository: {{owner}}/{{repo}}

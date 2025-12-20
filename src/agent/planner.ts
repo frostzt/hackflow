@@ -211,62 +211,24 @@ export class Planner {
     }).join("\n");
 
     const prompt = `
-Create a workflow to accomplish this task:
-"${userRequest}"
+Task: "${userRequest}"
 
-## Available MCP Tools
-${toolsContext}
+Environment: ${environment.cwd}${environment.git ? `, branch: ${environment.git.branch}` : ""}
 
-## Built-in Actions (always available)
-- prompt.ask: Ask user for input. Params: { message: "question", default: "{{suggested}}" }
-- ai.generate: Generate text with AI. Params: { prompt: "...", temperature: 0.3 }
-- log.info: Show message to user. Params: { message: "..." }
+Available tools: ${toolsContext}
 
-## Git MCP Tools (IMPORTANT: always include repo_path: ".")
-- git.git_status: Get repo status. Params: { repo_path: "." }
-- git.git_diff: Get diff. Params: { repo_path: ".", staged: true/false }
-- git.git_add: Stage files. Params: { repo_path: ".", files: ["."] }
-- git.git_commit: Commit. Params: { repo_path: ".", message: "..." }
+Generate a workflow using the templates from system prompt. Adapt TEMPLATE A for branch/commit tasks, TEMPLATE B for push/PR tasks, TEMPLATE C for simple commits.
 
-## GitHub MCP Tools (use these instead of gh CLI!)
-- github.create_pull_request: Create PR. Params: { owner: "...", repo: "...", head: "branch", base: "main", title: "...", body: "..." }
-- github.list_pull_requests: List PRs. Params: { owner: "...", repo: "...", state: "open" }
-- github.get_pull_request: Get PR details. Params: { owner: "...", repo: "...", pull_number: 123 }
-
-## Shell MCP Tools
-- shell.execute_command: Run shell command. Params: { command: "..." }
-- IMPORTANT: Do NOT use "gh" CLI commands - use github.* MCP tools instead!
-
-## Environment
-Working Directory: ${environment.cwd}
-${environment.git ? `Git Branch: ${environment.git.branch}` : "Not a git repository"}
-${environment.projectType ? `Project Type: ${environment.projectType}` : ""}
-
-## IMPORTANT RULES
-1. Use "output": "var_name" to capture step results
-2. Use {{var_name}} to reference previous outputs
-3. NEVER use shell substitution $(command) - it won't work!
-4. ASK user (prompt.ask) for: branch names, version numbers, custom labels
-5. GENERATE with AI (ai.generate) for: commit messages, summaries from diffs
-
-## Example: Analyze changes and create branch
-Step 1: Get diff → output: "diff_output"
-Step 2: AI generates branch name suggestion from diff → output: "suggested_name"  
-Step 3: Ask user to confirm/modify branch name → output: "branch_name"
-Step 4: Create branch using {{branch_name}}
-
-Respond with JSON:
+Respond with JSON only:
 {
   "description": "Short description",
-  "explanation": "Step-by-step explanation for user",
+  "explanation": "What this does step by step",
   "risks": ["potential risks"],
-  "toolsUsed": ["tool1", "tool2"],
+  "toolsUsed": ["git", "shell", "github"],
   "workflow": {
-    "name": "ephemeral-task",
+    "name": "ephemeral-taskname",
     "description": "...",
-    "steps": [
-      { "action": "action.name", "description": "...", "params": {...}, "output": "var_name" }
-    ]
+    "steps": [{ "action": "...", "description": "...", "params": {...}, "output": "..." }]
   }
 }
 `.trim();
@@ -499,92 +461,71 @@ Respond with JSON:
   }
 }
 
-const EPHEMERAL_SYSTEM_PROMPT = `You are a workflow generator for Hackflow.
+const EPHEMERAL_SYSTEM_PROMPT = `You are a workflow generator. Generate ONLY valid JSON workflows.
 
-Your job is to create minimal, focused workflows that accomplish specific tasks using available MCP tools.
+## CRITICAL RULES
 
-## CRITICAL RULES - READ CAREFULLY
+1. Git MCP tools ALWAYS need "repo_path": "."
+2. AI generation prompts MUST end with: "Output ONLY the [thing], nothing else. No explanation, no markdown, no quotes."
+3. Use prompt.ask with "default" parameter when you have an AI-generated suggestion
+4. NEVER use gh CLI - use github.create_pull_request MCP tool instead
+5. NEVER use shell substitution $(command) - capture output with "output" field instead
 
-### 1. Variable System
-- Each step can capture its output using "output": "variable_name"
-- Use {{variable_name}} to reference previous step outputs in later steps
-- NEVER use shell substitution like $(command) - it won't work!
+## COMPLETE WORKING TEMPLATES - Copy and adapt these exactly:
 
-### 2. User Input with Defaults
-- When you need user input, use prompt.ask with a default value from a previous step:
-  { "action": "prompt.ask", "params": { "message": "Branch name", "default": "{{suggested_name}}" }, "output": "branch_name" }
-- If user presses Enter without typing, the default value is used
-- ALWAYS provide a default when you have a suggestion from AI generation
+### TEMPLATE A: Stage, create branch, commit
+{
+  "name": "ephemeral-branch-commit",
+  "description": "Create branch from changes and commit",
+  "steps": [
+    { "action": "git.git_diff", "description": "Get staged changes", "params": { "repo_path": ".", "staged": true }, "output": "diff" },
+    { "action": "ai.generate", "description": "Generate branch name", "params": { "prompt": "Generate a kebab-case git branch name for these changes. Output ONLY the branch name, nothing else. No explanation, no markdown, no quotes.\\n\\nChanges:\\n{{diff}}" }, "output": "suggested_branch" },
+    { "action": "prompt.ask", "description": "Confirm branch name", "params": { "message": "Branch name", "default": "{{suggested_branch}}" }, "output": "branch_name" },
+    { "action": "shell.execute_command", "description": "Create branch", "params": { "command": "git checkout -b {{branch_name}}" } },
+    { "action": "ai.generate", "description": "Generate commit message", "params": { "prompt": "Generate a conventional commit message for these changes. Output ONLY the commit message, nothing else. No explanation, no markdown code blocks.\\n\\nChanges:\\n{{diff}}" }, "output": "commit_msg" },
+    { "action": "git.git_commit", "description": "Commit changes", "params": { "repo_path": ".", "message": "{{commit_msg}}" } },
+    { "action": "log.info", "description": "Done", "params": { "message": "Created branch {{branch_name}} and committed changes" } }
+  ]
+}
 
-### 3. AI Generation - CRITICAL FORMAT
-- When generating values (branch names, commit messages), be VERY specific in the prompt:
-  { 
-    "action": "ai.generate", 
-    "params": { 
-      "prompt": "Generate a git branch name for these changes. Output ONLY the branch name, nothing else. No explanation, no code blocks, no quotes. Just the branch name in kebab-case.\n\nChanges:\n{{diff}}" 
-    }, 
-    "output": "suggested_branch" 
-  }
-- ALWAYS include "Output ONLY the X, nothing else. No explanation, no code blocks."
-- The AI output will be used directly in commands, so it must be clean
+### TEMPLATE B: Push and create PR
+{
+  "name": "ephemeral-push-pr",
+  "description": "Push branch and create PR",
+  "steps": [
+    { "action": "shell.execute_command", "description": "Get current branch", "params": { "command": "git branch --show-current" }, "output": "branch" },
+    { "action": "shell.execute_command", "description": "Push to origin", "params": { "command": "git push -u origin {{branch}}" } },
+    { "action": "shell.execute_command", "description": "Get remote URL", "params": { "command": "git remote get-url origin" }, "output": "remote_url" },
+    { "action": "ai.generate", "description": "Extract owner/repo", "params": { "prompt": "Extract owner/repo from this git URL: {{remote_url}}\\n\\nOutput ONLY in format: owner/repo\\nNothing else. No explanation." }, "output": "owner_repo" },
+    { "action": "shell.execute_command", "description": "Get owner", "params": { "command": "echo '{{owner_repo}}' | cut -d'/' -f1 | tr -d '\\n '" }, "output": "owner" },
+    { "action": "shell.execute_command", "description": "Get repo", "params": { "command": "echo '{{owner_repo}}' | cut -d'/' -f2 | tr -d '\\n '" }, "output": "repo" },
+    { "action": "git.git_diff", "description": "Get changes for PR", "params": { "repo_path": ".", "staged": false }, "output": "diff" },
+    { "action": "ai.generate", "description": "Generate PR title", "params": { "prompt": "Generate a PR title for these changes. Output ONLY the title, nothing else. No quotes, no markdown.\\n\\nBranch: {{branch}}\\nChanges:\\n{{diff}}" }, "output": "pr_title" },
+    { "action": "ai.generate", "description": "Generate PR body", "params": { "prompt": "Generate a PR description in markdown for these changes. Output ONLY the description, no preamble.\\n\\nChanges:\\n{{diff}}" }, "output": "pr_body" },
+    { "action": "github.create_pull_request", "description": "Create PR", "params": { "owner": "{{owner}}", "repo": "{{repo}}", "head": "{{branch}}", "base": "main", "title": "{{pr_title}}", "body": "{{pr_body}}" }, "output": "pr_result" },
+    { "action": "log.info", "description": "Done", "params": { "message": "PR created!\\n{{pr_result}}" } }
+  ]
+}
 
-### 4. REQUIRED PARAMETERS - VERY IMPORTANT
-Git MCP tools ALWAYS need repo_path parameter:
-- git.git_status: { "repo_path": "." }
-- git.git_diff: { "repo_path": ".", "staged": true }
-- git.git_add: { "repo_path": ".", "files": ["."] }
-- git.git_commit: { "repo_path": ".", "message": "{{commit_msg}}" }
+### TEMPLATE C: Simple commit with AI message
+{
+  "name": "ephemeral-smart-commit",
+  "description": "Commit staged changes with AI message",
+  "steps": [
+    { "action": "git.git_diff", "description": "Get staged diff", "params": { "repo_path": ".", "staged": true }, "output": "diff" },
+    { "action": "ai.generate", "description": "Generate commit message", "params": { "prompt": "Generate a conventional commit message for these changes. Output ONLY the commit message, nothing else.\\n\\nChanges:\\n{{diff}}" }, "output": "commit_msg" },
+    { "action": "prompt.ask", "description": "Confirm message", "params": { "message": "Commit message", "default": "{{commit_msg}}" }, "output": "final_msg" },
+    { "action": "git.git_commit", "description": "Commit", "params": { "repo_path": ".", "message": "{{final_msg}}" } },
+    { "action": "log.info", "description": "Done", "params": { "message": "Committed: {{final_msg}}" } }
+  ]
+}
 
-Shell commands:
-- shell.execute_command: { "command": "git checkout -b {{branch_name}}" }
-
-### 5. Data Flow Example - COMPLETE CORRECT PATTERN
-
-Step 1 - Get diff:
-  { "action": "git.git_diff", "params": { "repo_path": ".", "staged": true }, "output": "diff_output" }
-
-Step 2 - AI generates branch name (MUST include strict output instructions):
-  { "action": "ai.generate", "params": { "prompt": "Generate a git branch name for these changes. Output ONLY the branch name in kebab-case. No explanation, no markdown, no quotes.\\n\\nChanges:\\n{{diff_output}}" }, "output": "suggested_branch" }
-
-Step 3 - Ask user with default:
-  { "action": "prompt.ask", "params": { "message": "Branch name", "default": "{{suggested_branch}}" }, "output": "branch_name" }
-
-Step 4 - Create branch:
-  { "action": "shell.execute_command", "params": { "command": "git checkout -b {{branch_name}}" } }
-
-Step 5 - AI generates commit message (MUST include strict output instructions):
-  { "action": "ai.generate", "params": { "prompt": "Generate a detailed conventional commit message for these changes. Output ONLY the commit message. No explanation, no markdown code blocks.\\n\\nChanges:\\n{{diff_output}}" }, "output": "commit_msg" }
-
-Step 6 - Commit:
-  { "action": "git.git_commit", "params": { "repo_path": ".", "message": "{{commit_msg}}" } }
-
-WRONG patterns to avoid:
-- { "action": "git.git_status", "params": {} }  // Missing repo_path
-- { "params": { "prompt": "Generate branch name for {{diff}}" } }  // Missing "Output ONLY..." instruction
-- { "action": "shell.execute_command", "params": { "command": "gh pr create ..." } }  // WRONG! Use github.create_pull_request instead
-
-For GitHub operations, ALWAYS use github.* MCP tools, not gh CLI:
-- github.create_pull_request for creating PRs
-- github.list_pull_requests for listing PRs
-- github.get_pull_request for getting PR details
-
-### 6. When to Ask vs Generate
-- GENERATE with AI first: branch names, commit messages, summaries from code changes
-- Then ASK user to confirm with the AI suggestion as default:
-  Step 1: ai.generate → output: "suggested_branch"
-  Step 2: prompt.ask with default: "{{suggested_branch}}" → output: "branch_name"
-- This way, user can press Enter to accept or type to override
-
-Output valid JSON with this structure:
+## OUTPUT FORMAT
+Return ONLY valid JSON matching this structure:
 {
   "name": "ephemeral-taskname",
-  "description": "What this workflow does",
-  "steps": [
-    {
-      "action": "server.tool_name",
-      "description": "What this step does",
-      "params": { ... },
-      "output": "variable_name"
-    }
-  ]
-}`;
+  "description": "Short description",
+  "steps": [...]
+}
+
+Adapt the templates above for the user's request. Keep it minimal.`;
